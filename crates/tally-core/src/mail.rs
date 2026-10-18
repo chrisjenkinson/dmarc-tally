@@ -267,7 +267,10 @@ fn extract_zip(
         if entry.is_dir() {
             continue;
         }
-        let name = entry.name().to_owned();
+        let name = entry
+            .name()
+            .map_err(|e| MailError::Malformed(e.to_string()))?
+            .into_owned();
         if !name.to_ascii_lowercase().ends_with(".xml") {
             return Err(MailError::UnsupportedReport(format!("{location}/{name}")));
         }
