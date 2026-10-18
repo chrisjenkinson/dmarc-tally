@@ -58,13 +58,19 @@ fn refuses_malformed_and_entity_bearing_xml() {
 
 #[test]
 fn enforces_input_nesting_and_record_limits() {
-    let mut limits = ParseLimits::default();
-    limits.max_xml_bytes = 20;
-    assert!(parse_dmarc_xml(MODERN, &limits).is_err());
-    limits = ParseLimits::default();
-    limits.max_depth = 3;
-    assert!(parse_dmarc_xml(MODERN, &limits).is_err());
-    limits = ParseLimits::default();
-    limits.max_records = 0;
-    assert!(parse_dmarc_xml(MODERN, &limits).is_err());
+    let size_limit = ParseLimits {
+        max_xml_bytes: 20,
+        ..Default::default()
+    };
+    assert!(parse_dmarc_xml(MODERN, &size_limit).is_err());
+    let depth_limit = ParseLimits {
+        max_depth: 3,
+        ..Default::default()
+    };
+    assert!(parse_dmarc_xml(MODERN, &depth_limit).is_err());
+    let record_limit = ParseLimits {
+        max_records: 0,
+        ..Default::default()
+    };
+    assert!(parse_dmarc_xml(MODERN, &record_limit).is_err());
 }
