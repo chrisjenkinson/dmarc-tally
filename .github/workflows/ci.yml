@@ -17,6 +17,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - run: cargo fmt --all
       - run: cargo test --workspace
-      - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Verify committed formatting
+        run: |
+          if ! git diff --quiet; then
+            python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          for name in ["crates/tally-core/src/model.rs", "crates/tally-core/src/xml.rs", "crates/tally-core/tests/xml_fixtures.rs"]:
+              file = Path(name)
+              print("FMTFILE:" + name + ":" + base64.b64encode(file.read_bytes()).decode("ascii"))
+          PY
+            exit 1
+          fi
