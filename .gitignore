@@ -1,0 +1,26 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Local credentials and private data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Agent tools and private planning artifacts
+/docs/superpowers/
+**/docs/superpowers/
+/.claude/
+/.codex/
+/.agents/
+/.aider*
+/.cursor/
+/.serena/
+
+# Local scratch files
+/.local/
+/.scratch/
+.DS_Store
