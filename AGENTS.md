@@ -9,7 +9,7 @@ DMARC Tally is a small, independent, GPLv3-licensed Rust/AWS project. Prefer sim
 - An SES inbound receipt rule stores original emails in S3; S3 events asynchronously invoke the Rust ingestion Lambda.
 - Persist all recognised structured DMARC report and individual-record fields in DynamoDB. Detect unknown XML elements and attributes rather than silently dropping them.
 - Expire original emails after about one day only when every DMARC report within them has been fully captured; retain incomplete or unsupported inputs.
-- Support historical import via attached email messages; validate with Fastmail's "Forward as attachment" behaviour.
+- Support historical import from standard attached email messages (`message/rfc822` and `.eml`); test nested MIME and compressed report attachments using sanitised fixtures.
 - Keep v1 reporting simple: basic counts, reporting organisations, sending IPs and date filters. Defer sender attribution, charts and alerting.
 - Protect existing SES receipt-rule configurations, authentication tokens and durable reporting data across deployment, updates and deletion.
 
@@ -20,4 +20,4 @@ DMARC Tally is a small, independent, GPLv3-licensed Rust/AWS project. Prefer sim
 - Do not commit secrets, personal email messages, account credentials or unsanitised DMARC fixtures.
 - **Only this root AGENTS.md may contain agent-specific instructions.** Do not commit other agent-oriented documents or artifacts, including `docs/superpowers/`, implementation plans, design drafts, session transcripts, `.claude/`, `.codex/`, or similar files.
 - Normal README, product and technical documentation, source files, sanitized fixtures and tests are welcome; keep them product-focused.
-- The approved external design and implementation plan remain outside this repository. Implementation awaits the maintainer's review of the plan and selection of an execution approach.
+- Keep implementation and maintenance guidance generic; never include an individual maintainer's contact details, personal domains, AWS resources, mailbox exports, or unrelated project references.
