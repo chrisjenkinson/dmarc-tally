@@ -1,6 +1,6 @@
 # Repository guidance
 
-DMARC Tally is a small, independent Rust/AWS project intended for a future open-source release. Prefer simple, testable designs, minimal dependencies and low ongoing operational overhead.
+DMARC Tally is a small, independent, GPLv3-licensed Rust/AWS project. Prefer simple, testable designs, minimal dependencies and low ongoing operational overhead.
 
 ## Agreed product direction
 
