@@ -154,7 +154,9 @@ impl fmt::Display for ParseError {
             Self::InputTooLarge => write!(formatter, "DMARC XML exceeds the configured size limit"),
             Self::TooManyNodes => write!(formatter, "DMARC XML exceeds the configured node limit"),
             Self::TooDeep => write!(formatter, "DMARC XML exceeds the configured nesting limit"),
-            Self::TooManyRecords => write!(formatter, "DMARC XML exceeds the configured record limit"),
+            Self::TooManyRecords => {
+                write!(formatter, "DMARC XML exceeds the configured record limit")
+            }
             Self::Malformed(message) => write!(formatter, "Malformed DMARC XML: {message}"),
         }
     }
