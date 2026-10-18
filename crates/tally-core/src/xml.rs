@@ -5,8 +5,8 @@
 //! nodes. The parser never silently ignores unfamiliar XML fields.
 
 use crate::model::{
-    DateRange, DmarcFormat, DmarcRecord, ParseError, ParseLimits, ParsedReport,
-    PolicyEvaluated, PublishedPolicy, ReportMetadata, UnknownField, XmlAttribute, XmlNode,
+    DateRange, DmarcFormat, DmarcRecord, ParseError, ParseLimits, ParsedReport, PolicyEvaluated,
+    PublishedPolicy, ReportMetadata, UnknownField, XmlAttribute, XmlNode,
 };
 use roxmltree::{Document, Node, ParsingOptions, NS_XML_URI};
 use std::net::IpAddr;
@@ -21,8 +21,8 @@ pub fn parse_dmarc_xml(input: &[u8], limits: &ParseLimits) -> Result<ParsedRepor
         return Err(ParseError::InputTooLarge);
     }
 
-    let xml = std::str::from_utf8(input)
-        .map_err(|e| ParseError::Malformed(format!("Not UTF-8: {e}")))?;
+    let xml =
+        std::str::from_utf8(input).map_err(|e| ParseError::Malformed(format!("Not UTF-8: {e}")))?;
     // A known DTD, even empty, is excluded. External entities must never be fetched.
     if xml.to_ascii_lowercase().contains("<!doctype") {
         return Err(ParseError::Malformed("DOCTYPE is not supported".into()));
@@ -44,7 +44,11 @@ pub fn parse_dmarc_xml(input: &[u8], limits: &ParseLimits) -> Result<ParsedRepor
     let format_version = match root.tag_name().namespace() {
         Some(DMARC_V2_NS) => DmarcFormat::Rfc9990,
         None | Some(DMARC_LEGACY_NS) => DmarcFormat::Rfc7489,
-        Some(other) => return Err(ParseError::Malformed(format!("Unknown DMARC namespace: {other}"))),
+        Some(other) => {
+            return Err(ParseError::Malformed(format!(
+                "Unknown DMARC namespace: {other}"
+            )))
+        }
     };
 
     let mut records_seen = 0_usize;
@@ -62,7 +66,14 @@ pub fn parse_dmarc_xml(input: &[u8], limits: &ParseLimits) -> Result<ParsedRepor
     }
 
     let mut unknown_fields = Vec::new();
-    inspect_fields(root, None, "feedback", format_version, root.tag_name().namespace(), &mut unknown_fields);
+    inspect_fields(
+        root,
+        None,
+        "feedback",
+        format_version,
+        root.tag_name().namespace(),
+        &mut unknown_fields,
+    );
     let metadata_node = one_child(root, "report_metadata")?;
     let policy_node = one_child(root, "policy_published")?;
 
@@ -90,13 +101,18 @@ pub fn parse_dmarc_xml(input: &[u8], limits: &ParseLimits) -> Result<ParsedRepor
         raw: own_node(metadata_node),
     };
     let published_policy = PublishedPolicy {
-        domain: one_text(policy_node, "domain")?.trim_end_matches('.').to_ascii_lowercase(),
+        domain: one_text(policy_node, "domain")?
+            .trim_end_matches('.')
+            .to_ascii_lowercase(),
         raw: own_node(policy_node),
     };
     one_text(policy_node, "p")?;
 
     let mut records = Vec::with_capacity(records_seen);
-    for record_node in root.children().filter(|c| c.is_element() && c.has_tag_name("record")) {
+    for record_node in root
+        .children()
+        .filter(|c| c.is_element() && c.has_tag_name("record"))
+    {
         let row = one_child(record_node, "row")?;
         let evaluated_node = one_child(row, "policy_evaluated")?;
         one_text(evaluated_node, "disposition")?;
@@ -143,7 +159,9 @@ pub fn parse_dmarc_xml(input: &[u8], limits: &ParseLimits) -> Result<ParsedRepor
         });
     }
     if records.is_empty() {
-        return Err(ParseError::Malformed("At least one record is required".into()));
+        return Err(ParseError::Malformed(
+            "At least one record is required".into(),
+        ));
     }
 
     Ok(ParsedReport {
@@ -155,9 +173,16 @@ pub fn parse_dmarc_xml(input: &[u8], limits: &ParseLimits) -> Result<ParsedRepor
     })
 }
 
-fn one_child<'a, 'input>(node: Node<'a, 'input>, name: &str) -> Result<Node<'a, 'input>, ParseError> {
-    let mut children = node.children().filter(|c| c.is_element() && c.has_tag_name(name));
-    let first = children.next().ok_or_else(|| ParseError::Malformed(format!("Missing {name}")))?;
+fn one_child<'a, 'input>(
+    node: Node<'a, 'input>,
+    name: &str,
+) -> Result<Node<'a, 'input>, ParseError> {
+    let mut children = node
+        .children()
+        .filter(|c| c.is_element() && c.has_tag_name(name));
+    let first = children
+        .next()
+        .ok_or_else(|| ParseError::Malformed(format!("Missing {name}")))?;
     if children.next().is_some() {
         return Err(ParseError::Malformed(format!("Duplicate {name}")));
     }
@@ -174,8 +199,12 @@ fn one_text(node: Node<'_, '_>, name: &str) -> Result<String, ParseError> {
 }
 
 fn optional_text(node: Node<'_, '_>, name: &str) -> Result<Option<String>, ParseError> {
-    let mut children = node.children().filter(|c| c.is_element() && c.has_tag_name(name));
-    let first = children.next().map(|child| child.text().unwrap_or("").trim().to_owned());
+    let mut children = node
+        .children()
+        .filter(|c| c.is_element() && c.has_tag_name(name));
+    let first = children
+        .next()
+        .map(|child| child.text().unwrap_or("").trim().to_owned());
     if children.next().is_some() {
         return Err(ParseError::Malformed(format!("Duplicate {name}")));
     }
@@ -187,16 +216,24 @@ fn own_node(node: Node<'_, '_>) -> XmlNode {
     XmlNode {
         name: node.tag_name().name().to_owned(),
         namespace: node.tag_name().namespace().map(str::to_owned),
-        attributes: node.attributes().map(|a| XmlAttribute {
-            name: a.name().to_owned(),
-            namespace: a.namespace().map(str::to_owned),
-            value: a.value().to_owned(),
-        }).collect(),
-        text: node.children()
+        attributes: node
+            .attributes()
+            .map(|a| XmlAttribute {
+                name: a.name().to_owned(),
+                namespace: a.namespace().map(str::to_owned),
+                value: a.value().to_owned(),
+            })
+            .collect(),
+        text: node
+            .children()
             .filter(|c| c.is_text())
             .filter_map(|c| c.text())
             .collect::<String>(),
-        children: node.children().filter(|c| c.is_element()).map(own_node).collect(),
+        children: node
+            .children()
+            .filter(|c| c.is_element())
+            .map(own_node)
+            .collect(),
     }
 }
 
@@ -205,12 +242,17 @@ fn known_child(parent: &str, child: &str, version: DmarcFormat) -> bool {
     match (parent, child) {
         ("feedback", "report_metadata" | "policy_published" | "record") => true,
         ("feedback", "version" | "extension") => version == DmarcFormat::Rfc9990,
-        ("report_metadata", "org_name" | "email" | "extra_contact_info" | "report_id" | "date_range" | "error") => true,
+        (
+            "report_metadata",
+            "org_name" | "email" | "extra_contact_info" | "report_id" | "date_range" | "error",
+        ) => true,
         ("report_metadata", "generator") => version == DmarcFormat::Rfc9990,
         ("date_range", "begin" | "end") => true,
         ("policy_published", "domain" | "p" | "sp" | "adkim" | "aspf" | "fo") => true,
         ("policy_published", "rf" | "ri" | "pct") => version == DmarcFormat::Rfc7489,
-        ("policy_published", "np" | "testing" | "discovery_method") => version == DmarcFormat::Rfc9990,
+        ("policy_published", "np" | "testing" | "discovery_method") => {
+            version == DmarcFormat::Rfc9990
+        }
         ("record", "row" | "identifiers" | "auth_results") => true,
         ("row", "source_ip" | "count" | "policy_evaluated") => true,
         ("policy_evaluated", "disposition" | "dkim" | "spf" | "reason") => true,
