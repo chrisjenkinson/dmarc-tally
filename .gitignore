@@ -10,16 +10,6 @@
 *.key
 *.p12
 
-# Agent tools and private planning artifacts
-/docs/superpowers/
-**/docs/superpowers/
-/.claude/
-/.codex/
-/.agents/
-/.aider*
-/.cursor/
-/.serena/
-
 # Local scratch files
 /.local/
 /.scratch/
