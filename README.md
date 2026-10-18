@@ -15,13 +15,13 @@ The goal is to replace a stream of XML reporting emails with a simple, private d
 - Automatically expire original emails once all DMARC data has been captured, with exceptions retained for investigation.
 - Upgrade through versioned CloudFormation stack updates without deleting reporting history.
 
-**Status:** Design approved; implementation has not started. Installation instructions will be added with the first release.
+**Status:** Pre-release. Installation instructions will be added with the first release.
 
 ## Development
 
 Rust is the primary language. AWS infrastructure is described with plain CloudFormation (no SAM or other deployment framework).
 
-This repository will contain application source, tests, infrastructure, and product/developer documentation. Agent workflow artifacts and internal plans are not tracked.
+This repository contains public application documentation and will host application source, tests, and infrastructure code as development proceeds.
 
 ## Licence
 
