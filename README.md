@@ -25,4 +25,4 @@ This repository will contain application source, tests, infrastructure, and prod
 
 ## Licence
 
-An open-source licence has not yet been selected. Until one is added, public access to the repository does not grant general rights to reuse or redistribute the code.
+GNU General Public License, version 3 (GPL-3.0). See [LICENSE](LICENSE).
