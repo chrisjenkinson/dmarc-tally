@@ -2,3 +2,4 @@
 
 pub mod model;
 pub mod xml;
+pub mod mail;
