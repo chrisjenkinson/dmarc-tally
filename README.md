@@ -23,6 +23,17 @@ Rust is the primary language. AWS infrastructure is described with plain CloudFo
 
 This repository contains public application documentation and will host application source, tests, and infrastructure code as development proceeds.
 
+## Architecture
+
+V1 runs on AWS Lambda using SES for inbound/outbound email, S3 for incoming messages, and DynamoDB for stored DMARC reports. The implementation separates the portable Rust application from AWS integration:
+
+- `tally-core`: DMARC parsing, report models, ingestion/reporting logic and capability-oriented storage/email interfaces.
+- `tally-web`: reusable HTTP handlers and report rendering; no Lambda-specific types.
+- `tally-aws`: AWS implementations of storage, intake retention and outbound email.
+- `tally-lambda`: thin AWS event/HTTP entry points.
+
+The core and HTTP application are designed for other adapters to be added independently. Other cloud providers, databases, IMAP polling and conventional web-server hosting are **not implemented or supported in v1**.
+
 ## Licence
 
 GNU General Public License, version 3 (GPL-3.0). See [LICENSE](LICENSE).
