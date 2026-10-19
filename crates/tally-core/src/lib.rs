@@ -5,3 +5,4 @@ pub mod xml;
 pub mod mail;
 pub mod identity;
 pub mod ports;
+pub mod ingest;
