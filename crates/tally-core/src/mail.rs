@@ -214,12 +214,12 @@ fn visit(
     Ok(())
 }
 
-fn account_bytes(
-    size: usize,
-    state: &mut State,
-    limits: &MailLimits,
-) -> Result<(), MailError> {
-    if size > limits.max_expanded_bytes.saturating_sub(state.expanded_bytes) {
+fn account_bytes(size: usize, state: &mut State, limits: &MailLimits) -> Result<(), MailError> {
+    if size
+        > limits
+            .max_expanded_bytes
+            .saturating_sub(state.expanded_bytes)
+    {
         return Err(MailError::ExpandedLimit);
     }
     state.expanded_bytes += size;
@@ -231,7 +231,9 @@ fn read_expanded(
     state: &mut State,
     limits: &MailLimits,
 ) -> Result<Vec<u8>, MailError> {
-    let remaining = limits.max_expanded_bytes.saturating_sub(state.expanded_bytes);
+    let remaining = limits
+        .max_expanded_bytes
+        .saturating_sub(state.expanded_bytes);
     let mut payload = Vec::new();
     reader
         .take((remaining as u64).saturating_add(1))
@@ -247,8 +249,8 @@ fn extract_zip(
     state: &mut State,
     limits: &MailLimits,
 ) -> Result<(), MailError> {
-    let mut archive = ZipArchive::new(Cursor::new(bytes))
-        .map_err(|e| MailError::Malformed(e.to_string()))?;
+    let mut archive =
+        ZipArchive::new(Cursor::new(bytes)).map_err(|e| MailError::Malformed(e.to_string()))?;
     if archive.len() > limits.max_mime_parts.saturating_sub(state.parts_seen) {
         return Err(MailError::TooManyParts);
     }
