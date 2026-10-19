@@ -121,3 +121,6 @@ pub fn decode_report(
     }
     Ok(meta.stored)
 }
+
+// Implementation details remain AWS-only; callers use the core port.
+pub use crate::dynamo_repository::DynamoReportRepository;
