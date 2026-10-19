@@ -6,6 +6,10 @@ on:
       - feat/initial-rust-parser
   pull_request:
 
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -17,19 +21,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo fmt --all
       - run: cargo test --workspace
+      - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Review formatter output
-        run: |
-          python3 - <<'PY'
-          import base64
-          import subprocess
-          from pathlib import Path
-          paths = subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines()
-          for name in paths:
-              if name.endswith(".rs"):
-                  print("FMTCODE:" + name + ":" + base64.b64encode(Path(name).read_bytes()).decode("ascii"))
-          print("FMTCOUNT:" + str(len(paths)))
-          PY
-          git diff --exit-code
