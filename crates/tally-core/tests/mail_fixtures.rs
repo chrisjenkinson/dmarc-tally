@@ -53,7 +53,11 @@ fn extracts_direct_gzip_and_plain_xml() {
 
 #[test]
 fn extracts_zip_without_ignoring_other_xml_in_email() {
-    let parts = part("application/zip", "aggregate.zip", &zip_xml("report.xml", REPORT));
+    let parts = part(
+        "application/zip",
+        "aggregate.zip",
+        &zip_xml("report.xml", REPORT),
+    );
     let docs = extract_dmarc_documents(&email(&parts), &MailLimits::default()).unwrap();
     assert_eq!(docs.xml_documents.len(), 1);
     assert_eq!(docs.xml_documents[0].xml, REPORT);
@@ -77,7 +81,11 @@ fn extracts_nested_forwarded_eml_attachments_from_single_batch() {
 
 #[test]
 fn rejects_zip_traversal_and_unsupported_dmarc_compression() {
-    let traversal = part("application/zip", "reports.zip", &zip_xml("../report.xml", REPORT));
+    let traversal = part(
+        "application/zip",
+        "reports.zip",
+        &zip_xml("../report.xml", REPORT),
+    );
     assert!(extract_dmarc_documents(&email(&traversal), &MailLimits::default()).is_err());
     let unknown = part("application/octet-stream", "report.xml.br", b"not-a-brotli");
     assert!(extract_dmarc_documents(&email(&unknown), &MailLimits::default()).is_err());
