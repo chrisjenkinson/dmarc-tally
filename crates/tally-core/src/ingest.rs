@@ -4,12 +4,12 @@
 //! deliberately outside the core. Callers may delete an original only when
 //! \`ImportOutcome::fully_captured\` and their own writes are durable.
 
-use std::fmt;
 use crate::identity::{report_identity, DomainSet, StoredReport};
 use crate::mail::{extract_dmarc_documents, MailError, MailLimits};
 use crate::model::{ParseError, ParseLimits};
 use crate::ports::{PersistOutcome, ReportRepository, StoreError};
 use crate::xml::parse_dmarc_xml;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct IngestLimits {
@@ -51,10 +51,14 @@ impl fmt::Display for ImportError {
 impl std::error::Error for ImportError {}
 
 impl From<MailError> for ImportError {
-    fn from(value: MailError) -> Self { Self::Mail(value) }
+    fn from(value: MailError) -> Self {
+        Self::Mail(value)
+    }
 }
 impl From<StoreError> for ImportError {
-    fn from(value: StoreError) -> Self { Self::Storage(value) }
+    fn from(value: StoreError) -> Self {
+        Self::Storage(value)
+    }
 }
 
 /// All supported logical reports in a MIME email are processed independently.
@@ -102,7 +106,9 @@ pub async fn import_email(
             PersistOutcome::PreviouslyCompleted => outcome.previously_completed += 1,
             PersistOutcome::CompletedWithUnknownFields => {}
             PersistOutcome::Conflict => {
-                outcome.retained.push(RetainedReason::ConflictingReport(identity.digest_hex()));
+                outcome
+                    .retained
+                    .push(RetainedReason::ConflictingReport(identity.digest_hex()));
             }
         }
 
