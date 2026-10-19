@@ -164,3 +164,31 @@ impl fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum DateRangeError {
+    UnsupportedWindow(u8),
+}
+
+impl std::fmt::Display for DateRangeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedWindow(days) => write!(f, "Unsupported reporting window: {days} days"),
+        }
+    }
+}
+impl std::error::Error for DateRangeError {}
+
+impl DateRange {
+    /// Include report-period ends inside the preceding 7, 30 or 90 days.
+    pub fn last_days(days: u8, now: time::OffsetDateTime) -> Result<Self, DateRangeError> {
+        if !matches!(days, 7 | 30 | 90) {
+            return Err(DateRangeError::UnsupportedWindow(days));
+        }
+        let end = now.unix_timestamp();
+        Ok(Self {
+            begin: end - i64::from(days) * 86_400,
+            end,
+        })
+    }
+}
