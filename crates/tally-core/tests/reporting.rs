@@ -31,7 +31,7 @@ fn summarises_ip_across_reports_using_either_aligned_authentication_path() {
     let third = report("c", "198.51.100.20", 4, "fail", "fail");
     let Summary {
         reports, messages, passed, failed, by_ip, by_reporter, dispositions
-    } = summarise([first, second, third].into_iter());
+    } = summarise([first, second, third]);
     assert_eq!(reports, 3);
     assert_eq!((messages, passed, failed), (14, 10, 4));
     assert_eq!(by_ip.get("192.0.2.10").unwrap().messages, 10);
