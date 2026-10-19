@@ -111,12 +111,9 @@ impl DynamoReportRepository {
 impl ReportRepository for DynamoReportRepository {
     async fn persist_report(&self, stored: &StoredReport) -> Result<PersistOutcome, StoreError> {
         let keys = DynamoKeys::from_identity(&stored.identity);
-        let hash = format!("{:x}", std::fmt::from_fn(|f| {
-            for byte in &stored.content_hash {
-                write!(f, "{byte:02x}")?;
-            }
-            Ok(())
-        }));
+        let hash = stored.content_hash.iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         let data = encode_meta(stored).map_err(|e| corrupt("Encode report metadata", e))?;
         let expected_count = stored.report.records.len();
 
