@@ -3,8 +3,8 @@
 //! Nothing in this module assumes a database, provider, HTTP framework,
 //! or email-delivery implementation.
 
-use std::collections::BTreeMap;
 use crate::identity::StoredReport;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Traffic {
@@ -55,12 +55,21 @@ where
                 summary.failed = summary.failed.saturating_add(record.count);
             }
 
-            summary.by_ip.entry(record.source_ip.clone())
-                .or_default().observe(record.count, passed);
-            summary.by_reporter.entry(stored.identity.organisation.clone())
-                .or_default().observe(record.count, passed);
-            let disposition = record.evaluated.value("disposition")
-                .unwrap_or("unknown").to_ascii_lowercase();
+            summary
+                .by_ip
+                .entry(record.source_ip.clone())
+                .or_default()
+                .observe(record.count, passed);
+            summary
+                .by_reporter
+                .entry(stored.identity.organisation.clone())
+                .or_default()
+                .observe(record.count, passed);
+            let disposition = record
+                .evaluated
+                .value("disposition")
+                .unwrap_or("unknown")
+                .to_ascii_lowercase();
             let accumulated = summary.dispositions.entry(disposition).or_default();
             *accumulated = accumulated.saturating_add(record.count);
         }
