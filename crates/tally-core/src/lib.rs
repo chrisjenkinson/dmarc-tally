@@ -6,3 +6,4 @@ pub mod mail;
 pub mod identity;
 pub mod ports;
 pub mod ingest;
+pub mod reporting;
