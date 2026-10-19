@@ -1,6 +1,6 @@
 # Repository guidance
 
-DMARC Tally is a small, independent, GPLv3-licensed Rust/AWS project. Prefer simple, testable designs, minimal dependencies and low ongoing operational overhead.
+DMARC Tally is a small, independent, GPLv3-licensed Rust application with an AWS-first deployment. Prefer simple, testable designs, minimal dependencies and low ongoing operational overhead.
 
 ## Agreed product direction
 
@@ -12,6 +12,16 @@ DMARC Tally is a small, independent, GPLv3-licensed Rust/AWS project. Prefer sim
 - Support historical import from standard attached email messages (`message/rfc822` and `.eml`); test nested MIME and compressed report attachments using sanitised fixtures.
 - Keep v1 reporting simple: basic counts, reporting organisations, sending IPs and date filters. Defer sender attribution, charts and alerting.
 - Protect existing SES receipt-rule configurations, authentication tokens and durable reporting data across deployment, updates and deletion.
+
+## Architecture boundaries
+
+- **Implement only AWS Lambda hosting in v1.** Do not add IMAP polling, an alternative database, Azure deployments, SMTP or a conventional web server unless separately requested.
+- Keep `tally-core` independent of AWS: DMARC/MIME parsing, report identity, ingestion, reporting and authentication behaviour, with minimal capability-oriented `ReportRepository`, `AuthenticationStore` and `EmailSender` interfaces.
+- Keep `tally-web` independent of AWS/Lambda: portable HTTP handlers and rendering behind those core capabilities.
+- Put DynamoDB, S3 and SES SDK usage in `tally-aws`. Keep `tally-lambda` thin: map AWS events/HTTP requests to the portable application and interpret its outcomes.
+- Pass raw MIME bytes to the core ingestion use case and return a typed fully-captured/retained outcome. Reading S3 objects, setting expiry tags and interpreting Lambda events belong exclusively to AWS adapters.
+- Do not expose DynamoDB keys, `AttributeValue`, S3 object keys, SES identities or Lambda event objects through core contracts. Use an in-memory repository/sender in contract tests.
+- Support future alternative adapters/entry points through existing contracts **without changes to the core for existing functionality**, where feasible. A genuinely new application capability may require deliberate core evolution. Avoid generic cloud frameworks and speculative abstractions.
 
 ## Working rules
 
