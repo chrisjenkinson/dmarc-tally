@@ -104,23 +104,32 @@ impl ReportRepository for InMemoryReportRepository {
             StoreError::Unavailable("Report repository lock poisoned".into())
         })?;
         let mut matching: Vec<_> = reports
-            .iter()
-            .filter(|(_, r)| {
+            .values()
+            .filter(|r| {
                 &r.identity.domain == domain
                     && (range.begin..=range.end).contains(&r.identity.period_end)
             })
-            .map(|(id, report)| (id, report))
+            .map(|report| {
+                (
+                    format!(
+                        "{:020}/{}",
+                        report.identity.period_end,
+                        report.identity.digest_hex(),
+                    ),
+                    report,
+                )
+            })
             .collect();
-        matching.sort_by_key(|(id, r)| (r.identity.period_end, (*id).clone()));
+        matching.sort_by(|left, right| left.0.cmp(&right.0));
         let after = cursor.as_ref().map(|cursor| cursor.0.as_str());
         let mut results = matching
             .into_iter()
-            .filter(|(id, _)| after.map(|cursor| id.as_str() > cursor).unwrap_or(true))
+            .filter(|(key, _)| after.map(|cursor| key.as_str() > cursor).unwrap_or(true))
             .take(101)
             .collect::<Vec<_>>();
         let next_cursor = if results.len() > 100 {
             results.truncate(100);
-            results.last().map(|(id, _)| Cursor((*id).clone()))
+            results.last().map(|(key, _)| Cursor((*key).clone()))
         } else {
             None
         };
