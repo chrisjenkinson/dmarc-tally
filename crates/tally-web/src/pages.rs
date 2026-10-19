@@ -47,7 +47,7 @@ fn start_page(title: &str) -> String {
         escape_html(title),
     );
     html.push_str(
-        r#"<style>
+        r##"<style>
 :root { color-scheme: light dark; font-family: system-ui,-apple-system,sans-serif; }
 body { margin:0 auto; max-width: 58rem; padding: 1.2rem; line-height:1.5; }
 header,main,footer { display:block; }
@@ -63,7 +63,7 @@ label { display:block; font-weight:600; } select,button { font:inherit; padding:
 .muted { opacity:0.75; } .skip { position:absolute; top:-5rem; }
 .skip:focus { top:0; background:Canvas; padding:0.5rem; }
 </style></head><body><a class="skip" href="#content">Skip to reports</a>
-<header><h1>DMARC Tally</h1><nav><a href="/">Reports</a></nav></header><main id="content">"#,
+<header><h1>DMARC Tally</h1><nav><a href="/">Reports</a></nav></header><main id="content">"##,
     );
     html
 }
