@@ -47,22 +47,37 @@ fn corrupt(context: &str, error: impl std::fmt::Display) -> StoreError {
 
 impl DynamoReportRepository {
     pub fn new(client: Client, table: impl Into<String>) -> Self {
-        Self { client, table: table.into() }
+        Self {
+            client,
+            table: table.into(),
+        }
     }
 
-    async fn metadata(&self, identity: &ReportIdentity) -> Result<Option<MetadataItem>, StoreError> {
+    async fn metadata(
+        &self,
+        identity: &ReportIdentity,
+    ) -> Result<Option<MetadataItem>, StoreError> {
         let keys = DynamoKeys::from_identity(identity);
-        let result = self.client.get_item()
+        let result = self
+            .client
+            .get_item()
             .table_name(&self.table)
             .key("PK", Value::S(keys.partition))
             .key("SK", Value::S(keys.metadata))
             .consistent_read(true)
-            .send().await.map_err(|e| unavailable("Read report metadata", e))?;
-        result.item().map(|item| Ok(MetadataItem {
-            state: attr(item, "State")?.to_owned(),
-            content_hash: attr(item, "Hash")?.to_owned(),
-            payload: attr(item, "Data")?.to_owned(),
-        })).transpose()
+            .send()
+            .await
+            .map_err(|e| unavailable("Read report metadata", e))?;
+        result
+            .item()
+            .map(|item| {
+                Ok(MetadataItem {
+                    state: attr(item, "State")?.to_owned(),
+                    content_hash: attr(item, "Hash")?.to_owned(),
+                    payload: attr(item, "Data")?.to_owned(),
+                })
+            })
+            .transpose()
     }
 
     async fn assert_existing_record(
@@ -71,14 +86,21 @@ impl DynamoReportRepository {
         sort_key: &str,
         expected: &str,
     ) -> Result<bool, StoreError> {
-        let result = self.client.get_item()
+        let result = self
+            .client
+            .get_item()
             .table_name(&self.table)
             .key("PK", Value::S(partition.to_owned()))
             .key("SK", Value::S(sort_key.to_owned()))
             .consistent_read(true)
-            .send().await.map_err(|e| unavailable("Check existing DMARC record", e))?;
-        Ok(result.item().map(|item| attr(item, "Data"))
-            .transpose()?.is_some_and(|actual| actual == expected))
+            .send()
+            .await
+            .map_err(|e| unavailable("Check existing DMARC record", e))?;
+        Ok(result
+            .item()
+            .map(|item| attr(item, "Data"))
+            .transpose()?
+            .is_some_and(|actual| actual == expected))
     }
 
     async fn read_records(&self, identity: &ReportIdentity) -> Result<Vec<String>, StoreError> {
@@ -86,7 +108,9 @@ impl DynamoReportRepository {
         let mut records = Vec::new();
         let mut next: Option<HashMap<String, Value>> = None;
         loop {
-            let mut request = self.client.query()
+            let mut request = self
+                .client
+                .query()
                 .table_name(&self.table)
                 .consistent_read(true)
                 .key_condition_expression("PK = :partition AND begins_with(SK, :prefix)")
@@ -95,13 +119,17 @@ impl DynamoReportRepository {
             if let Some(last) = next.take() {
                 request = request.set_exclusive_start_key(Some(last));
             }
-            let page = request.send().await
+            let page = request
+                .send()
+                .await
                 .map_err(|e| unavailable("Read DMARC record page", e))?;
             for item in page.items() {
                 records.push(attr(item, "Data")?.to_owned());
             }
             next = page.last_evaluated_key().cloned();
-            if next.is_none() { break; }
+            if next.is_none() {
+                break;
+            }
         }
         Ok(records)
     }
@@ -111,7 +139,9 @@ impl DynamoReportRepository {
 impl ReportRepository for DynamoReportRepository {
     async fn persist_report(&self, stored: &StoredReport) -> Result<PersistOutcome, StoreError> {
         let keys = DynamoKeys::from_identity(&stored.identity);
-        let hash = stored.content_hash.iter()
+        let hash = stored
+            .content_hash
+            .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
         let data = encode_meta(stored).map_err(|e| corrupt("Encode report metadata", e))?;
@@ -124,7 +154,9 @@ impl ReportRepository for DynamoReportRepository {
             }
             Some(_) => {}
             None => {
-                let created = self.client.put_item()
+                let created = self
+                    .client
+                    .put_item()
                     .table_name(&self.table)
                     .item("PK", Value::S(keys.partition.clone()))
                     .item("SK", Value::S(keys.metadata.clone()))
@@ -133,17 +165,27 @@ impl ReportRepository for DynamoReportRepository {
                     .item("Count", Value::N(expected_count.to_string()))
                     .item("Data", Value::S(data))
                     .condition_expression("attribute_not_exists(PK)")
-                    .send().await;
+                    .send()
+                    .await;
                 if let Err(error) = created {
-                    if error.as_service_error().is_some_and(|e| e.is_conditional_check_failed_exception()) {
+                    if error
+                        .as_service_error()
+                        .is_some_and(|e| e.is_conditional_check_failed_exception())
+                    {
                         let current = self.metadata(&stored.identity).await?;
                         match current {
-                            Some(other) if other.content_hash != hash => return Ok(PersistOutcome::Conflict),
+                            Some(other) if other.content_hash != hash => {
+                                return Ok(PersistOutcome::Conflict)
+                            }
                             Some(other) if other.state == "COMPLETE" => {
                                 return Ok(PersistOutcome::PreviouslyCompleted);
                             }
                             Some(_) => {}
-                            None => return Err(StoreError::Unavailable("Metadata disappeared during write".into())),
+                            None => {
+                                return Err(StoreError::Unavailable(
+                                    "Metadata disappeared during write".into(),
+                                ))
+                            }
                         }
                     } else {
                         return Err(unavailable("Create DMARC report", error));
@@ -158,18 +200,28 @@ impl ReportRepository for DynamoReportRepository {
             let record_data = encode_record(&StoredRecord {
                 ordinal,
                 full_record: record.clone(),
-            }).map_err(|e| corrupt("Encode record", e))?;
+            })
+            .map_err(|e| corrupt("Encode record", e))?;
             let sort_key = keys.record_sort_key(ordinal);
-            let saved = self.client.put_item()
+            let saved = self
+                .client
+                .put_item()
                 .table_name(&self.table)
                 .item("PK", Value::S(keys.partition.clone()))
                 .item("SK", Value::S(sort_key.clone()))
                 .item("Data", Value::S(record_data.clone()))
                 .condition_expression("attribute_not_exists(PK)")
-                .send().await;
+                .send()
+                .await;
             if let Err(error) = saved {
-                if error.as_service_error().is_some_and(|e| e.is_conditional_check_failed_exception()) {
-                    if !self.assert_existing_record(&keys.partition, &sort_key, &record_data).await? {
+                if error
+                    .as_service_error()
+                    .is_some_and(|e| e.is_conditional_check_failed_exception())
+                {
+                    if !self
+                        .assert_existing_record(&keys.partition, &sort_key, &record_data)
+                        .await?
+                    {
                         return Ok(PersistOutcome::Conflict);
                     }
                 } else {
@@ -178,7 +230,9 @@ impl ReportRepository for DynamoReportRepository {
             }
         }
 
-        let completed = self.client.update_item()
+        let completed = self
+            .client
+            .update_item()
             .table_name(&self.table)
             .key("PK", Value::S(keys.partition))
             .key("SK", Value::S(keys.metadata))
@@ -191,14 +245,21 @@ impl ReportRepository for DynamoReportRepository {
             .expression_attribute_values(":writing", Value::S("WRITING".into()))
             .expression_attribute_values(":hash", Value::S(hash.clone()))
             .expression_attribute_values(":count", Value::N(expected_count.to_string()))
-            .send().await;
+            .send()
+            .await;
         if let Err(error) = completed {
-            if error.as_service_error().is_some_and(|e| e.is_conditional_check_failed_exception()) {
+            if error
+                .as_service_error()
+                .is_some_and(|e| e.is_conditional_check_failed_exception())
+            {
                 return match self.metadata(&stored.identity).await? {
-                    Some(meta) if meta.content_hash == hash && meta.state == "COMPLETE" =>
-                        Ok(PersistOutcome::PreviouslyCompleted),
+                    Some(meta) if meta.content_hash == hash && meta.state == "COMPLETE" => {
+                        Ok(PersistOutcome::PreviouslyCompleted)
+                    }
                     Some(meta) if meta.content_hash != hash => Ok(PersistOutcome::Conflict),
-                    _ => Err(StoreError::Unavailable("Could not complete report after record writes".into())),
+                    _ => Err(StoreError::Unavailable(
+                        "Could not complete report after record writes".into(),
+                    )),
                 };
             }
             return Err(unavailable("Complete DMARC report", error));
@@ -245,7 +306,9 @@ impl ReportRepository for DynamoReportRepository {
         let mut key: Option<HashMap<String, Value>> = None;
         let mut matches = Vec::new();
         'pages: loop {
-            let mut query = self.client.query()
+            let mut query = self
+                .client
+                .query()
                 .table_name(&self.table)
                 .consistent_read(true)
                 .key_condition_expression("PK = :partition AND SK BETWEEN :start AND :end")
@@ -255,7 +318,9 @@ impl ReportRepository for DynamoReportRepository {
             if let Some(start_key) = key.take() {
                 query = query.set_exclusive_start_key(Some(start_key));
             }
-            let response = query.send().await
+            let response = query
+                .send()
+                .await
                 .map_err(|e| unavailable("Query DMARC reporting period", e))?;
             for item in response.items() {
                 let sk = attr(item, "SK")?;
@@ -268,8 +333,12 @@ impl ReportRepository for DynamoReportRepository {
                 let meta_data = attr(item, "Data")?;
                 let identity = metadata_identity(meta_data)
                     .map_err(|e| corrupt("Decode report metadata", e))?;
-                if &identity.domain != domain || !(range.begin..=range.end).contains(&identity.period_end) {
-                    return Err(StoreError::Corrupt("Stored report is outside its DynamoDB range".into()));
+                if &identity.domain != domain
+                    || !(range.begin..=range.end).contains(&identity.period_end)
+                {
+                    return Err(StoreError::Corrupt(
+                        "Stored report is outside its DynamoDB range".into(),
+                    ));
                 }
                 matches.push((sk.to_owned(), identity));
                 if matches.len() == 100 {
@@ -277,24 +346,32 @@ impl ReportRepository for DynamoReportRepository {
                 }
             }
             key = response.last_evaluated_key().cloned();
-            if key.is_none() { break; }
+            if key.is_none() {
+                break;
+            }
         }
 
         let next_cursor = (matches.len() == 100)
             .then(|| Cursor(matches.last().expect("100 report IDs exist").0.clone()));
         let mut reports = Vec::with_capacity(matches.len());
         for (_, identity) in matches {
-            let report = self.get_report(&identity).await?
-                .ok_or_else(|| StoreError::Corrupt("Complete metadata has missing records".into()))?;
+            let report = self.get_report(&identity).await?.ok_or_else(|| {
+                StoreError::Corrupt("Complete metadata has missing records".into())
+            })?;
             reports.push(report);
         }
-        Ok(ReportPage { reports, next_cursor })
+        Ok(ReportPage {
+            reports,
+            next_cursor,
+        })
     }
 }
 
 /// Parse the stored metadata payload without exposing DynamoDB fields in core.
 fn metadata_identity(data: &str) -> Result<ReportIdentity, serde_json::Error> {
     #[derive(serde::Deserialize)]
-    struct SummaryMetadata { stored: StoredReport }
+    struct SummaryMetadata {
+        stored: StoredReport,
+    }
     serde_json::from_str::<SummaryMetadata>(data).map(|m| m.stored.identity)
 }
