@@ -7,9 +7,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Mutex;
 
-use async_trait::async_trait;
 use crate::identity::{DomainName, ReportIdentity, StoredReport};
 use crate::model::DateRange;
+use async_trait::async_trait;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PersistOutcome {
@@ -76,9 +76,10 @@ pub struct InMemoryReportRepository {
 impl ReportRepository for InMemoryReportRepository {
     async fn persist_report(&self, stored: &StoredReport) -> Result<PersistOutcome, StoreError> {
         let key = stored.identity.digest_hex();
-        let mut reports = self.completed.lock().map_err(|_| {
-            StoreError::Unavailable("Report repository lock poisoned".into())
-        })?;
+        let mut reports = self
+            .completed
+            .lock()
+            .map_err(|_| StoreError::Unavailable("Report repository lock poisoned".into()))?;
         if let Some(existing) = reports.get(&key) {
             return Ok(if existing.content_hash == stored.content_hash {
                 PersistOutcome::PreviouslyCompleted
@@ -100,9 +101,10 @@ impl ReportRepository for InMemoryReportRepository {
         range: DateRange,
         cursor: Option<Cursor>,
     ) -> Result<ReportPage, StoreError> {
-        let reports = self.completed.lock().map_err(|_| {
-            StoreError::Unavailable("Report repository lock poisoned".into())
-        })?;
+        let reports = self
+            .completed
+            .lock()
+            .map_err(|_| StoreError::Unavailable("Report repository lock poisoned".into()))?;
         let mut matching: Vec<_> = reports
             .values()
             .filter(|r| {
@@ -143,8 +145,11 @@ impl ReportRepository for InMemoryReportRepository {
         &self,
         identity: &ReportIdentity,
     ) -> Result<Option<StoredReport>, StoreError> {
-        Ok(self.completed.lock().map_err(|_| {
-            StoreError::Unavailable("Report repository lock poisoned".into())
-        })?.get(&identity.digest_hex()).cloned())
+        Ok(self
+            .completed
+            .lock()
+            .map_err(|_| StoreError::Unavailable("Report repository lock poisoned".into()))?
+            .get(&identity.digest_hex())
+            .cloned())
     }
 }
