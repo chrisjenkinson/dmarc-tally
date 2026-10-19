@@ -3,11 +3,11 @@
 //! Report identities do not depend on MIME headers, receipt timestamps,
 //! forwarding, or storage-provider details.
 
-use std::collections::BTreeSet;
-use std::fmt;
+use crate::model::ParsedReport;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use crate::model::ParsedReport;
+use std::collections::BTreeSet;
+use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct DomainName(String);
@@ -15,12 +15,17 @@ pub struct DomainName(String);
 impl DomainName {
     pub fn parse(value: &str) -> Result<Self, DomainError> {
         let normalised = value.trim().trim_end_matches('.').to_ascii_lowercase();
-        if normalised.len() > 253 || normalised.is_empty()
+        if normalised.len() > 253
+            || normalised.is_empty()
             || !normalised.contains('.')
             || normalised.split('.').any(|label| {
-                label.is_empty() || label.len() > 63
-                    || label.starts_with('-') || label.ends_with('-')
-                    || !label.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+                label.is_empty()
+                    || label.len() > 63
+                    || label.starts_with('-')
+                    || label.ends_with('-')
+                    || !label
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'-')
             })
         {
             return Err(DomainError(value.to_owned()));
@@ -58,7 +63,9 @@ impl DomainSet {
             .map(|domain| DomainName::parse(domain.as_ref()))
             .collect::<Result<_, _>>()?;
         if set.is_empty() {
-            return Err(DomainError("At least one monitored domain is required".into()));
+            return Err(DomainError(
+                "At least one monitored domain is required".into(),
+            ));
         }
         Ok(Self(set))
     }
@@ -84,11 +91,7 @@ pub struct ReportIdentity {
 impl ReportIdentity {
     pub fn digest_hex(&self) -> String {
         let mut hasher = Sha256::new();
-        for part in [
-            self.domain.as_str(),
-            &self.organisation,
-            &self.report_id,
-        ] {
+        for part in [self.domain.as_str(), &self.organisation, &self.report_id] {
             update_string(&mut hasher, part);
         }
         hasher.update(self.period_start.to_be_bytes());
@@ -105,7 +108,10 @@ fn update_string(hasher: &mut Sha256, data: &str) {
 pub fn report_identity(report: &ParsedReport) -> ReportIdentity {
     // The XML parser requires a valid policy-domain field; domain allowlist
     // validation is performed before persistence by the ingestion use case.
-    let normalised = report.published_policy.domain.trim()
+    let normalised = report
+        .published_policy
+        .domain
+        .trim()
         .trim_end_matches('.')
         .to_ascii_lowercase();
     ReportIdentity {
