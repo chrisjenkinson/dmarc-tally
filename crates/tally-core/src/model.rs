@@ -5,8 +5,8 @@
 //! extensions are also preserved and explicitly marked so their source email
 //! is never considered eligible for automatic deletion.
 
-use std::fmt;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// An input safety limit, independent of Lambda memory or timeout settings.
 #[derive(Debug, Clone, Copy)]
