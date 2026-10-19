@@ -79,7 +79,7 @@ fn report_details_include_ip_dkim_spf_and_disposition() {
     assert!(page.contains("DKIM"));
     assert!(page.contains("SPF"));
     assert!(page.contains("forwarded"));
-    assert!(page.contains("disposition"));
+    assert!(page.contains("Disposition"));
     assert!(!page.contains("View original email"));
 }
 
