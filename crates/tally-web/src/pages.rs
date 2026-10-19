@@ -84,15 +84,29 @@ pub fn render_report_page(view: &ReportViewModel) -> String {
     });
     for domain in &view.configured_domains {
         let escaped = escape_html(domain.as_str());
-        let selected = if view.selected_domain.as_ref() == Some(domain) { " selected" } else { "" };
+        let selected = if view.selected_domain.as_ref() == Some(domain) {
+            " selected"
+        } else {
+            ""
+        };
         html.push_str(&format!(
             r#"<option value="{escaped}"{selected}>{escaped}</option>"#,
         ));
     }
-    html.push_str(r#"</select></div><div><label for="days">Period</label><select name="days" id="days">"#);
-    let current_days = if matches!(view.days, 7 | 30 | 90) { view.days } else { 30 };
+    html.push_str(
+        r#"</select></div><div><label for="days">Period</label><select name="days" id="days">"#,
+    );
+    let current_days = if matches!(view.days, 7 | 30 | 90) {
+        view.days
+    } else {
+        30
+    };
     for days in [7, 30, 90] {
-        let selected = if current_days == days { " selected" } else { "" };
+        let selected = if current_days == days {
+            " selected"
+        } else {
+            ""
+        };
         html.push_str(&format!(
             r#"<option value="{days}"{selected}>Last {days} days</option>"#,
         ));
@@ -115,7 +129,9 @@ pub fn render_report_page(view: &ReportViewModel) -> String {
     if view.summary.reports == 0 {
         html.push_str("<p>No DMARC reports for this selection yet. Receiving a report may take time after DNS is configured.</p>");
     } else {
-        html.push_str("<section><h2>Reporting organisations</h2><div class=\"table-scroll\"><table>");
+        html.push_str(
+            "<section><h2>Reporting organisations</h2><div class=\"table-scroll\"><table>",
+        );
         html.push_str("<caption>Observations grouped by reporting organisation</caption>");
         html.push_str("<thead><tr><th scope=\"col\">Reporting organisation</th><th scope=\"col\">Messages</th><th scope=\"col\">Pass</th><th scope=\"col\">Fail</th></tr></thead><tbody>");
         for (reporter, totals) in &view.summary.by_reporter {
@@ -165,7 +181,10 @@ pub fn render_report_detail(view: &ReportDetailViewModel) -> String {
     html.push_str("</tbody></table></div>");
     html.push_str("<h3>Authentication details</h3>");
     for record in &r.report.records {
-        html.push_str(&format!("<h4>Sending IP: {}</h4>", escape_html(&record.source_ip)));
+        html.push_str(&format!(
+            "<h4>Sending IP: {}</h4>",
+            escape_html(&record.source_ip)
+        ));
         for result in &record.dkim_results {
             html.push_str(&format!(
                 "<p>DKIM: {} — {}</p>",
