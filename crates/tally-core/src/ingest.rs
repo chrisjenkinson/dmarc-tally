@@ -11,16 +11,10 @@ use crate::model::{ParseError, ParseLimits};
 use crate::ports::{PersistOutcome, ReportRepository, StoreError};
 use crate::xml::parse_dmarc_xml;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct IngestLimits {
     pub mail: MailLimits,
     pub xml: ParseLimits,
-}
-
-impl Default for IngestLimits {
-    fn default() -> Self {
-        Self { mail: MailLimits::default(), xml: ParseLimits::default() }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
