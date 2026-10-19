@@ -6,6 +6,7 @@
 //! is never considered eligible for automatic deletion.
 
 use std::fmt;
+use serde::{Deserialize, Serialize};
 
 /// An input safety limit, independent of Lambda memory or timeout settings.
 #[derive(Debug, Clone, Copy)]
@@ -27,20 +28,20 @@ impl Default for ParseLimits {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DmarcFormat {
     Rfc7489,
     Rfc9990,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct XmlAttribute {
     pub name: String,
     pub namespace: Option<String>,
     pub value: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct XmlNode {
     pub name: String,
     pub namespace: Option<String>,
@@ -64,20 +65,20 @@ impl XmlNode {
 }
 
 /// A field not recognised by the corresponding DMARC version's vocabulary.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnknownField {
     pub path: String,
     pub namespace: Option<String>,
     pub attribute: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DateRange {
     pub begin: i64,
     pub end: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReportMetadata {
     pub org_name: String,
     pub email: String,
@@ -88,7 +89,7 @@ pub struct ReportMetadata {
     pub raw: XmlNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublishedPolicy {
     pub domain: String,
     pub raw: XmlNode,
@@ -100,7 +101,7 @@ impl PublishedPolicy {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolicyEvaluated {
     pub reasons: Vec<XmlNode>,
     pub raw: XmlNode,
@@ -112,7 +113,7 @@ impl PolicyEvaluated {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DmarcRecord {
     pub source_ip: String,
     pub count: u64,
@@ -122,7 +123,7 @@ pub struct DmarcRecord {
     pub raw: XmlNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedReport {
     pub metadata: ReportMetadata,
     pub published_policy: PublishedPolicy,
@@ -139,7 +140,7 @@ impl ParsedReport {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ParseError {
     InputTooLarge,
     TooManyNodes,
