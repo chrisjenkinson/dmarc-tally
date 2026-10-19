@@ -51,7 +51,11 @@ fn reporter_names_are_escaped_not_rendered_as_html() {
     view.summary.failed = 1;
     view.summary.by_reporter.insert(
         "<script>alert('pwned')</script>".into(),
-        Traffic { messages: 3, passed: 2, failed: 1 },
+        Traffic {
+            messages: 3,
+            passed: 2,
+            failed: 1,
+        },
     );
     let page = render_report_page(&view);
     assert!(!page.contains("<script>alert"));
@@ -64,7 +68,8 @@ fn detail(original_available: bool) -> ReportDetailViewModel {
     let parsed = parse_dmarc_xml(
         include_bytes!("../../../tests/fixtures/xml/legacy.xml"),
         &ParseLimits::default(),
-    ).unwrap();
+    )
+    .unwrap();
     ReportDetailViewModel {
         report: StoredReport::from_parsed(parsed, "parser-v1"),
         original_available,
