@@ -50,9 +50,9 @@ impl AdminEmail {
             || local.starts_with('.')
             || local.ends_with('.')
             || local.contains("..")
-            || !local.bytes().all(|ch| {
-                ch.is_ascii_alphanumeric() || b".!#$%&'*+-/=?^_`{|}~".contains(&ch)
-            })
+            || !local
+                .bytes()
+                .all(|ch| ch.is_ascii_alphanumeric() || b".!#$%&'*+-/=?^_`{|}~".contains(&ch))
         {
             return Err(InvalidAdminEmail);
         }
@@ -65,8 +65,7 @@ impl AdminEmail {
     }
 
     pub fn matches(&self, requested_email: &str) -> bool {
-        Self::parse(requested_email)
-            .is_ok_and(|other| self.0.eq_ignore_ascii_case(&other.0))
+        Self::parse(requested_email).is_ok_and(|other| self.0.eq_ignore_ascii_case(&other.0))
     }
 }
 
@@ -220,18 +219,10 @@ pub trait AuthenticationStore: Send + Sync {
     ) -> Result<bool, AuthError>;
 
     /// Create a session if its digest is not already present.
-    async fn issue_session(
-        &self,
-        digest: TokenDigest,
-        expires_at: i64,
-    ) -> Result<(), AuthError>;
+    async fn issue_session(&self, digest: TokenDigest, expires_at: i64) -> Result<(), AuthError>;
 
     /// Check both digest presence and the strict expiry (expires_at > now).
-    async fn is_session_valid(
-        &self,
-        digest: &TokenDigest,
-        now: i64,
-    ) -> Result<bool, AuthError>;
+    async fn is_session_valid(&self, digest: &TokenDigest, now: i64) -> Result<bool, AuthError>;
 
     /// Remove a session if it exists; revoking an unknown digest succeeds.
     async fn revoke_session(&self, digest: &TokenDigest) -> Result<(), AuthError>;
@@ -261,11 +252,7 @@ impl<'a> Authentication<'a> {
 
     /// Deliberately no returned `unknown email`/throttled status. The HTTP
     /// layer must give a uniform acknowledgement even for internal failures.
-    pub async fn request_sign_in(
-        &self,
-        requested_email: &str,
-        now: i64,
-    ) -> Result<(), AuthError> {
+    pub async fn request_sign_in(&self, requested_email: &str, now: i64) -> Result<(), AuthError> {
         if !self.administrator.matches(requested_email) {
             return Ok(());
         }
@@ -273,12 +260,7 @@ impl<'a> Authentication<'a> {
         let secret = Secret(self.secrets.fresh_secret()?);
         let issued = self
             .store
-            .issue_login_challenge(
-                secret.digest(),
-                now,
-                expires_at,
-                LOGIN_COOLDOWN_SECONDS,
-            )
+            .issue_login_challenge(secret.digest(), now, expires_at, LOGIN_COOLDOWN_SECONDS)
             .await?;
         if issued {
             // May fail after the challenge is persisted. The token then
@@ -302,12 +284,20 @@ impl<'a> Authentication<'a> {
         let Some(secret) = Secret::parse(token) else {
             return Ok(None);
         };
-        let expires_at = now.checked_add(SESSION_TTL_SECONDS).ok_or(AuthError::Clock)?;
-        if !self.store.consume_login_challenge(&secret.digest(), now).await? {
+        let expires_at = now
+            .checked_add(SESSION_TTL_SECONDS)
+            .ok_or(AuthError::Clock)?;
+        if !self
+            .store
+            .consume_login_challenge(&secret.digest(), now)
+            .await?
+        {
             return Ok(None);
         }
         let session = Secret(self.secrets.fresh_secret()?);
-        self.store.issue_session(session.digest(), expires_at).await?;
+        self.store
+            .issue_session(session.digest(), expires_at)
+            .await?;
         Ok(Some(SessionCredential {
             secret: session,
             expires_at,
@@ -392,11 +382,7 @@ impl AuthenticationStore for InMemoryAuthenticationStore {
         Ok(false)
     }
 
-    async fn issue_session(
-        &self,
-        digest: TokenDigest,
-        expires_at: i64,
-    ) -> Result<(), AuthError> {
+    async fn issue_session(&self, digest: TokenDigest, expires_at: i64) -> Result<(), AuthError> {
         let mut state = self.state.lock().map_err(|_| AuthError::Storage)?;
         if state.sessions.contains_key(&digest) {
             return Err(AuthError::Storage); // random collision: fail closed
@@ -405,11 +391,7 @@ impl AuthenticationStore for InMemoryAuthenticationStore {
         Ok(())
     }
 
-    async fn is_session_valid(
-        &self,
-        digest: &TokenDigest,
-        now: i64,
-    ) -> Result<bool, AuthError> {
+    async fn is_session_valid(&self, digest: &TokenDigest, now: i64) -> Result<bool, AuthError> {
         let state = self.state.lock().map_err(|_| AuthError::Storage)?;
         Ok(state
             .sessions
