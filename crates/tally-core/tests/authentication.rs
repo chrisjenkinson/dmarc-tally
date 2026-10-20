@@ -4,7 +4,8 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use tally_core::authentication::{
-    AdminEmail, AuthError, Authentication, EmailSender, InMemoryAuthenticationStore,
+    AdminEmail, AuthError, Authentication, AuthenticationStore, EmailSender, InMemoryAuthenticationStore,
+    TokenDigest,
     SecureTokenSource, LOGIN_COOLDOWN_SECONDS, LOGIN_TTL_SECONDS, SESSION_TTL_SECONDS,
 };
 
@@ -305,6 +306,88 @@ async fn failed_email_send_is_an_internal_error_not_a_session() {
         .await
         .unwrap();
     assert_eq!(f.sender.sent().len(), 1);
+}
+
+
+struct UnavailableStore;
+
+#[async_trait]
+impl AuthenticationStore for UnavailableStore {
+    async fn issue_login_challenge(
+        &self,
+        _: TokenDigest,
+        _: i64,
+        _: i64,
+        _: i64,
+    ) -> Result<bool, AuthError> {
+        Err(AuthError::Storage)
+    }
+
+    async fn consume_login_challenge(
+        &self,
+        _: &TokenDigest,
+        _: i64,
+    ) -> Result<bool, AuthError> {
+        Err(AuthError::Storage)
+    }
+
+    async fn issue_session(&self, _: TokenDigest, _: i64) -> Result<(), AuthError> {
+        Err(AuthError::Storage)
+    }
+
+    async fn is_session_valid(&self, _: &TokenDigest, _: i64) -> Result<bool, AuthError> {
+        Err(AuthError::Storage)
+    }
+
+    async fn revoke_session(&self, _: &TokenDigest) -> Result<(), AuthError> {
+        Err(AuthError::Storage)
+    }
+}
+
+struct NoEntropy;
+
+impl SecureTokenSource for NoEntropy {
+    fn fresh_secret(&self) -> Result<[u8; 32], AuthError> {
+        Err(AuthError::Entropy)
+    }
+}
+
+#[tokio::test]
+async fn store_outages_deny_authorization_and_login_issuance() {
+    let f = Fixture::default();
+    let storage = UnavailableStore;
+    let auth = Authentication::new(&f.administrator, &storage, &f.sender, &f.secrets);
+    assert_eq!(
+        auth.request_sign_in(f.administrator.as_str(), NOW).await,
+        Err(AuthError::Storage)
+    );
+    assert_eq!(
+        auth.request_sign_in("someone-else@example.net", NOW).await,
+        Ok(())
+    );
+    assert_eq!(f.sender.sent().len(), 0);
+    let well_formed = "ab".repeat(32);
+    assert!(matches!(
+        auth.redeem_sign_in(&well_formed, NOW).await,
+        Err(AuthError::Storage)
+    ));
+    assert_eq!(
+        auth.is_authenticated(&well_formed, NOW).await,
+        Err(AuthError::Storage)
+    );
+    assert_eq!(auth.sign_out(&well_formed).await, Err(AuthError::Storage));
+}
+
+#[tokio::test]
+async fn unavailable_secure_random_source_never_sends_a_link() {
+    let f = Fixture::default();
+    let source = NoEntropy;
+    let auth = Authentication::new(&f.administrator, &f.storage, &f.sender, &source);
+    assert_eq!(
+        auth.request_sign_in(f.administrator.as_str(), NOW).await,
+        Err(AuthError::Entropy)
+    );
+    assert!(f.sender.sent().is_empty());
 }
 
 #[tokio::test]
