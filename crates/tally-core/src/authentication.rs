@@ -210,7 +210,8 @@ pub trait AuthenticationStore: Send + Sync {
         cooldown_seconds: i64,
     ) -> Result<bool, AuthError>;
 
-    /// Atomically compare digest and unexpired timestamp, then remove it.
+    /// Atomically compare digest and unexpired timestamp, then mark consumed.
+    /// Keep the last-issue timestamp until replaced to enforce the cooldown.
     /// At most one concurrent invocation may return true for a given link.
     async fn consume_login_challenge(
         &self,
@@ -332,6 +333,7 @@ struct LoginChallenge {
     digest: TokenDigest,
     issued_at: i64,
     expires_at: i64,
+    consumed: bool,
 }
 
 #[derive(Default)]
@@ -368,6 +370,7 @@ impl AuthenticationStore for InMemoryAuthenticationStore {
             digest,
             issued_at,
             expires_at,
+            consumed: false,
         });
         Ok(true)
     }
@@ -378,13 +381,13 @@ impl AuthenticationStore for InMemoryAuthenticationStore {
         now: i64,
     ) -> Result<bool, AuthError> {
         let mut state = self.state.lock().map_err(|_| AuthError::Storage)?;
-        if state
-            .login
-            .as_ref()
-            .is_some_and(|link| &link.digest == digest && link.expires_at > now)
-        {
-            state.login = None;
-            return Ok(true);
+        if let Some(link) = state.login.as_mut() {
+            if &link.digest == digest && link.expires_at > now && !link.consumed {
+                // Keep the last issued timestamp for request cooldown even
+                // after this link has been atomically consumed.
+                link.consumed = true;
+                return Ok(true);
+            }
         }
         Ok(false)
     }
