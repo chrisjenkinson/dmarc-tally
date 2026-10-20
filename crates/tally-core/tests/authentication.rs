@@ -4,9 +4,9 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use tally_core::authentication::{
-    AdminEmail, AuthError, Authentication, AuthenticationStore, EmailSender, InMemoryAuthenticationStore,
-    TokenDigest,
-    SecureTokenSource, LOGIN_COOLDOWN_SECONDS, LOGIN_TTL_SECONDS, SESSION_TTL_SECONDS,
+    AdminEmail, AuthError, Authentication, AuthenticationStore, EmailSender,
+    InMemoryAuthenticationStore, SecureTokenSource, TokenDigest, LOGIN_COOLDOWN_SECONDS,
+    LOGIN_TTL_SECONDS, SESSION_TTL_SECONDS,
 };
 
 const NOW: i64 = 1_800_000_000;
@@ -308,7 +308,6 @@ async fn failed_email_send_is_an_internal_error_not_a_session() {
     assert_eq!(f.sender.sent().len(), 1);
 }
 
-
 struct UnavailableStore;
 
 #[async_trait]
@@ -323,11 +322,7 @@ impl AuthenticationStore for UnavailableStore {
         Err(AuthError::Storage)
     }
 
-    async fn consume_login_challenge(
-        &self,
-        _: &TokenDigest,
-        _: i64,
-    ) -> Result<bool, AuthError> {
+    async fn consume_login_challenge(&self, _: &TokenDigest, _: i64) -> Result<bool, AuthError> {
         Err(AuthError::Storage)
     }
 
