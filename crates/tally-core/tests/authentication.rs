@@ -162,16 +162,24 @@ async fn repeated_requests_are_throttled_and_new_links_invalidate_old_ones() {
 async fn redeeming_a_link_does_not_reset_the_request_cooldown() {
     let f = Fixture::default();
     let auth = f.auth();
-    auth.request_sign_in(f.administrator.as_str(), NOW).await.unwrap();
+    auth.request_sign_in(f.administrator.as_str(), NOW)
+        .await
+        .unwrap();
     let first = f.most_recent_token();
-    assert!(auth.redeem_sign_in(&first, NOW + 1).await.unwrap().is_some());
+    assert!(auth
+        .redeem_sign_in(&first, NOW + 1)
+        .await
+        .unwrap()
+        .is_some());
     // Consuming a challenge must retain the last-issue timestamp, even when
     // the one-time token itself is no longer valid.
     auth.request_sign_in(f.administrator.as_str(), NOW + LOGIN_COOLDOWN_SECONDS - 1)
-        .await.unwrap();
+        .await
+        .unwrap();
     assert_eq!(f.sender.sent().len(), 1);
     auth.request_sign_in(f.administrator.as_str(), NOW + LOGIN_COOLDOWN_SECONDS)
-        .await.unwrap();
+        .await
+        .unwrap();
     assert_eq!(f.sender.sent().len(), 2);
 }
 
