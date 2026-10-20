@@ -91,12 +91,20 @@ fn admin_email_is_validated_and_normalised_without_accepting_header_injection() 
     assert_eq!(good.as_str(), "AdMin+DMARC@example.com");
     assert!(good.matches("admin+dmarc@EXAMPLE.com"));
     for bad in [
-        "", "admin", "admin@@example.com", "@example.com",
-        "admin@localhost", "admin@example..com",
+        "",
+        "admin",
+        "admin@@example.com",
+        "@example.com",
+        "admin@localhost",
+        "admin@example..com",
         "admin@example.com\r\nBcc:attacker@example.net",
-        "admin@example.com foo", "bad<email>@example.com",
+        "admin@example.com foo",
+        "bad<email>@example.com",
     ] {
-        assert!(AdminEmail::parse(bad).is_err(), "accepted invalid address {bad:?}");
+        assert!(
+            AdminEmail::parse(bad).is_err(),
+            "accepted invalid address {bad:?}"
+        );
     }
 }
 
@@ -104,7 +112,10 @@ fn admin_email_is_validated_and_normalised_without_accepting_header_injection() 
 async fn login_requests_are_indistinguishable_and_only_configured_admin_is_emailed() {
     let f = Fixture::default();
     let auth = f.auth();
-    assert_eq!(auth.request_sign_in("attacker@example.net", NOW).await, Ok(()));
+    assert_eq!(
+        auth.request_sign_in("attacker@example.net", NOW).await,
+        Ok(())
+    );
     assert_eq!(f.sender.sent().len(), 0);
     assert_eq!(
         auth.request_sign_in("admin+dmarc@EXAMPLE.COM", NOW).await,
@@ -121,20 +132,30 @@ async fn login_requests_are_indistinguishable_and_only_configured_admin_is_email
 async fn repeated_requests_are_throttled_and_new_links_invalidate_old_ones() {
     let f = Fixture::default();
     let auth = f.auth();
-    auth.request_sign_in(f.administrator.as_str(), NOW).await.unwrap();
+    auth.request_sign_in(f.administrator.as_str(), NOW)
+        .await
+        .unwrap();
     let first = f.most_recent_token();
     auth.request_sign_in(f.administrator.as_str(), NOW + LOGIN_COOLDOWN_SECONDS - 1)
-        .await.unwrap();
+        .await
+        .unwrap();
     assert_eq!(f.sender.sent().len(), 1);
     auth.request_sign_in(f.administrator.as_str(), NOW + LOGIN_COOLDOWN_SECONDS)
-        .await.unwrap();
+        .await
+        .unwrap();
     assert_eq!(f.sender.sent().len(), 2);
     let second = f.most_recent_token();
     assert_ne!(first, second);
-    assert!(auth.redeem_sign_in(&first, NOW + LOGIN_COOLDOWN_SECONDS)
-        .await.unwrap().is_none());
-    assert!(auth.redeem_sign_in(&second, NOW + LOGIN_COOLDOWN_SECONDS)
-        .await.unwrap().is_some());
+    assert!(auth
+        .redeem_sign_in(&first, NOW + LOGIN_COOLDOWN_SECONDS)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(auth
+        .redeem_sign_in(&second, NOW + LOGIN_COOLDOWN_SECONDS)
+        .await
+        .unwrap()
+        .is_some());
 }
 
 #[tokio::test]
@@ -158,33 +179,56 @@ async fn redeeming_a_link_does_not_reset_the_request_cooldown() {
 async fn magic_link_is_single_use_and_expires_at_exact_boundary() {
     let f = Fixture::default();
     let auth = f.auth();
-    auth.request_sign_in(f.administrator.as_str(), NOW).await.unwrap();
+    auth.request_sign_in(f.administrator.as_str(), NOW)
+        .await
+        .unwrap();
     let token = f.most_recent_token();
-    let session = auth.redeem_sign_in(&token, NOW + LOGIN_TTL_SECONDS - 1)
-        .await.unwrap().expect("link should work until expiry");
+    let session = auth
+        .redeem_sign_in(&token, NOW + LOGIN_TTL_SECONDS - 1)
+        .await
+        .unwrap()
+        .expect("link should work until expiry");
     assert!(!format!("{session:?}").contains(&session.cookie_value()));
-    assert!(auth.redeem_sign_in(&token, NOW + LOGIN_TTL_SECONDS - 1)
-        .await.unwrap().is_none());
+    assert!(auth
+        .redeem_sign_in(&token, NOW + LOGIN_TTL_SECONDS - 1)
+        .await
+        .unwrap()
+        .is_none());
 
     auth.request_sign_in(f.administrator.as_str(), NOW + LOGIN_COOLDOWN_SECONDS)
-        .await.unwrap();
+        .await
+        .unwrap();
     let expired = f.most_recent_token();
-    assert!(auth.redeem_sign_in(&expired, NOW + LOGIN_COOLDOWN_SECONDS + LOGIN_TTL_SECONDS)
-        .await.unwrap().is_none());
+    assert!(auth
+        .redeem_sign_in(&expired, NOW + LOGIN_COOLDOWN_SECONDS + LOGIN_TTL_SECONDS)
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
 async fn a_successful_session_can_be_validated_revoked_and_expires() {
     let f = Fixture::default();
     let auth = f.auth();
-    auth.request_sign_in(f.administrator.as_str(), NOW).await.unwrap();
-    let session = auth.redeem_sign_in(&f.most_recent_token(), NOW)
-        .await.unwrap().unwrap();
+    auth.request_sign_in(f.administrator.as_str(), NOW)
+        .await
+        .unwrap();
+    let session = auth
+        .redeem_sign_in(&f.most_recent_token(), NOW)
+        .await
+        .unwrap()
+        .unwrap();
     let cookie = session.cookie_value();
     assert_eq!(session.expires_at(), NOW + SESSION_TTL_SECONDS);
     assert!(auth.is_authenticated(&cookie, NOW).await.unwrap());
-    assert!(auth.is_authenticated(&cookie, NOW + SESSION_TTL_SECONDS - 1).await.unwrap());
-    assert!(!auth.is_authenticated(&cookie, NOW + SESSION_TTL_SECONDS).await.unwrap());
+    assert!(auth
+        .is_authenticated(&cookie, NOW + SESSION_TTL_SECONDS - 1)
+        .await
+        .unwrap());
+    assert!(!auth
+        .is_authenticated(&cookie, NOW + SESSION_TTL_SECONDS)
+        .await
+        .unwrap());
     auth.sign_out(&cookie).await.unwrap();
     auth.sign_out(&cookie).await.unwrap(); // logout is idempotent
     assert!(!auth.is_authenticated(&cookie, NOW).await.unwrap());
@@ -194,7 +238,13 @@ async fn a_successful_session_can_be_validated_revoked_and_expires() {
 async fn malformed_tokens_never_grant_access() {
     let f = Fixture::default();
     let auth = f.auth();
-    for token in ["", "bad", " 00", "0".repeat(64).as_str(), "../".repeat(22).as_str()] {
+    for token in [
+        "",
+        "bad",
+        " 00",
+        "0".repeat(64).as_str(),
+        "../".repeat(22).as_str(),
+    ] {
         assert!(auth.redeem_sign_in(token, NOW).await.unwrap().is_none());
         assert!(!auth.is_authenticated(token, NOW).await.unwrap());
         auth.sign_out(token).await.unwrap();
@@ -205,13 +255,18 @@ async fn malformed_tokens_never_grant_access() {
 async fn concurrent_redemption_allows_at_most_one_session() {
     let f = Fixture::default();
     let auth = f.auth();
-    auth.request_sign_in(f.administrator.as_str(), NOW).await.unwrap();
+    auth.request_sign_in(f.administrator.as_str(), NOW)
+        .await
+        .unwrap();
     let token = f.most_recent_token();
     let (a, b) = tokio::join!(
         auth.redeem_sign_in(&token, NOW),
         auth.redeem_sign_in(&token, NOW)
     );
-    assert_eq!(usize::from(a.unwrap().is_some()) + usize::from(b.unwrap().is_some()), 1);
+    assert_eq!(
+        usize::from(a.unwrap().is_some()) + usize::from(b.unwrap().is_some()),
+        1
+    );
 }
 
 #[tokio::test]
@@ -239,7 +294,8 @@ async fn failed_email_send_is_an_internal_error_not_a_session() {
     assert!(f.sender.sent().is_empty());
     f.sender.fail.store(false, Ordering::SeqCst);
     auth.request_sign_in(f.administrator.as_str(), NOW + LOGIN_COOLDOWN_SECONDS)
-        .await.unwrap();
+        .await
+        .unwrap();
     assert_eq!(f.sender.sent().len(), 1);
 }
 
@@ -248,7 +304,8 @@ async fn invalid_time_fails_before_modifying_storage() {
     let f = Fixture::default();
     let auth = f.auth();
     assert_eq!(
-        auth.request_sign_in(f.administrator.as_str(), i64::MAX).await,
+        auth.request_sign_in(f.administrator.as_str(), i64::MAX)
+            .await,
         Err(AuthError::Clock)
     );
     assert!(f.sender.sent().is_empty());
