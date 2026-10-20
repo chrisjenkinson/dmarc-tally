@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedback>
+  <report_metadata>
+    <org_name>Receiver Example</org_name>
+    <email>reports@receiver.example</email>
+    <extra_contact_info>https://receiver.example/help</extra_contact_info>
+    <report_id>legacy-001</report_id>
+    <date_range><begin>1791849600</begin><end>1791936000</end></date_range>
+    <error>One message evaluated under local policy</error>
+  </report_metadata>
+  <policy_published>
+    <domain>example.com</domain><adkim>r</adkim><aspf>s</aspf>
+    <p>reject</p><sp>quarantine</sp><pct>100</pct><fo>1</fo>
+  </policy_published>
+  <record>
+    <row>
+      <source_ip>192.0.2.10</source_ip><count>7</count>
+      <policy_evaluated>
+        <disposition>none</disposition><dkim>pass</dkim><spf>fail</spf>
+        <reason><type>forwarded</type><comment>Relay in use</comment></reason>
+      </policy_evaluated>
+    </row>
+    <identifiers>
+      <envelope_to>receiver.example</envelope_to>
+      <envelope_from>bounce.example.com</envelope_from>
+      <header_from>example.com</header_from>
+    </identifiers>
+    <auth_results>
+      <dkim><domain>example.com</domain><result>pass</result><selector>one</selector></dkim>
+      <dkim><domain>news.example.com</domain><result>fail</result><selector>two</selector><human_result>bad signature</human_result></dkim>
+      <spf><domain>bounce.example.com</domain><scope>mfrom</scope><result>pass</result></spf>
+      <spf><domain>relay.example.org</domain><scope>helo</scope><result>neutral</result></spf>
+    </auth_results>
+  </record>
+</feedback>

@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<feedback xmlns="urn:ietf:params:xml:ns:dmarc-2.0" xmlns:ext="https://example.net/dmarc/custom">
+  <version>1.0</version>
+  <report_metadata>
+    <org_name ext:provenance="experimental">Example</org_name>
+    <email>reports@receiver.example</email>
+    <report_id>extra-001</report_id>
+    <date_range><begin>1791849600</begin><end>1791935999</end></date_range>
+  </report_metadata>
+  <policy_published><domain>example.net</domain><p>reject</p></policy_published>
+  <extension><ext:override>unrecognised provider-specific field</ext:override></extension>
+  <record>
+    <row><source_ip>192.0.2.42</source_ip><count>2</count>
+      <policy_evaluated><disposition>reject</disposition><dkim>fail</dkim><spf>fail</spf></policy_evaluated>
+    </row>
+    <identifiers><header_from>example.net</header_from></identifiers>
+    <auth_results><spf><domain>example.net</domain><result>fail</result></spf></auth_results>
+  </record>
+</feedback>
