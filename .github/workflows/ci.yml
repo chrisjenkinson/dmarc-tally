@@ -3,7 +3,7 @@ name: Rust checks
 on:
   push:
     branches:
-      - feat/initial-rust-parser
+      - main
   pull_request:
 
 concurrency:
@@ -21,6 +21,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo test --workspace
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
+          cache-bin: "false"
+      - run: cargo test --workspace --locked
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
