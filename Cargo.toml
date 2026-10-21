@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/tally-core", "crates/tally-aws"]
+members = ["crates/tally-core", "crates/tally-aws", "crates/tally-web"]
 resolver = "2"
 
 [workspace.package]
