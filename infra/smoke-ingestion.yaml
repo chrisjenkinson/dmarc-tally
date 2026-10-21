@@ -1,0 +1,183 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Isolated, manual-invoke DMARC Tally ingestion smoke test only. No SES, DNS,
+  public endpoints, automatic S3 notifications or captured-object expiration.
+Parameters:
+  CodeBucket:
+    Type: String
+    MinLength: 3
+    Description: Same-region, private bucket already holding the bootstrap.zip.
+  CodeKey:
+    Type: String
+    MinLength: 1
+    Description: Immutable S3 object key for the compiled Rust bootstrap.zip.
+  MonitoredDomains:
+    Type: String
+    Default: example.com,example.net
+    AllowedPattern: '[a-zA-Z0-9.,-]+'
+    Description: Comma-separated domains in synthetic fixtures (no real mail needed).
+
+Resources:
+  IntakeBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: isolated-smoke-test
+
+  IntakeBucketTlsPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref IntakeBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt IntakeBucket.Arn
+              - !Sub '${IntakeBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  ReportsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: isolated-smoke-test
+
+  IngestLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-ingest'
+      RetentionInDays: 7
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: isolated-smoke-test
+
+  IngestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: IngestOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadAndTagOnlySmokeInput
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetObjectTagging
+                  - s3:GetObjectVersionTagging
+                  - s3:PutObjectTagging
+                  - s3:PutObjectVersionTagging
+                Resource: !Sub '${IntakeBucket.Arn}/incoming/*'
+              - Sid: ReadAndWriteOnlySmokeTable
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource: !GetAtt ReportsTable.Arn
+              - Sid: WriteOnlySmokeLogGroup
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-ingest:*'
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: isolated-smoke-test
+
+  IngestFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: IngestLogGroup
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-ingest'
+      Description: DMARC Tally isolated manual-invoke smoke test; not public.
+      PackageType: Zip
+      Runtime: provided.al2023
+      Handler: bootstrap
+      Architectures:
+        - x86_64
+      Role: !GetAtt IngestRole.Arn
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref CodeKey
+      Timeout: 90
+      MemorySize: 512
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          INTAKE_BUCKET: !Ref IntakeBucket
+          REPORTS_TABLE: !Ref ReportsTable
+          MONITORED_DOMAINS: !Ref MonitoredDomains
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: isolated-smoke-test
+
+Outputs:
+  IntakeBucket:
+    Description: Upload synthetic emails under incoming/ only.
+    Value: !Ref IntakeBucket
+  ReportsTable:
+    Description: Private, on-demand DynamoDB table.
+    Value: !Ref ReportsTable
+  IngestFunction:
+    Description: Invoke manually using the synthetic S3 event.
+    Value: !Ref IngestFunction
+  IngestLogGroup:
+    Description: CloudWatch log group, 7-day retention.
+    Value: !Ref IngestLogGroup

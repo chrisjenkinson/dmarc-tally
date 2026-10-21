@@ -1,0 +1,13 @@
+From: "Example DMARC receiver" <reports@receiver.example>
+To: test@example.net
+Subject: Deliberately malformed synthetic DMARC XML
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="dmarc-invalid-boundary"
+
+--dmarc-invalid-boundary
+Content-Type: application/xml; name="report.xml"
+Content-Disposition: attachment; filename="report.xml"
+Content-Transfer-Encoding: 8bit
+
+<feedback><report_metadata></feedback>
+--dmarc-invalid-boundary--

@@ -1,0 +1,80 @@
+name: Validate and package isolated AWS smoke test
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/smoke.yml'
+      - 'infra/smoke-*.yaml'
+      - 'tests/deployment/**'
+      - 'tests/fixtures/mime/smoke-*.eml'
+      - 'crates/tally-lambda/**'
+      - 'crates/tally-aws/**'
+      - 'Cargo.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Check CloudFormation and isolation rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install cfn-lint==1.57.2
+      - run: cfn-lint --regions ap-southeast-2 -t infra/smoke-artifacts.yaml infra/smoke-ingestion.yaml
+      - run: python -m unittest discover -s tests/deployment -p 'test_smoke_*.py'
+
+  package:
+    name: Build x86-64 Lambda ZIP (no AWS credentials)
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          bins: cargo-lambda@1.9.1
+          cache-target: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: '0.14.0'
+      - name: Compile the Rust ingest Lambda only
+        run: cargo lambda build --release --locked --package tally-lambda --bin ingest --output-format zip
+      - name: Validate the ZIP and compute its SHA-256
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          path = Path("target/lambda/ingest/bootstrap.zip")
+          assert path.is_file(), "Cargo Lambda did not produce bootstrap.zip"
+          with ZipFile(path) as archive:
+              assert "bootstrap" in archive.namelist(), "ZIP has no root bootstrap executable"
+              info = archive.getinfo("bootstrap")
+              raw = archive.read("bootstrap")
+              assert raw.startswith(b"\x7fELF"), "Bootstrap must be a Linux ELF executable"
+              assert raw[4] == 2, "Expected a 64-bit executable"
+              assert int.from_bytes(raw[18:20], "little") == 62, "Expected x86-64 architecture"
+              assert info.external_attr >> 16 & 0o111, "Bootstrap must be executable"
+              print("Verified x86-64 Lambda executable:", len(raw), "bytes")
+          PY
+          (cd target/lambda/ingest && sha256sum bootstrap.zip > bootstrap.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ingest-smoke-${{ github.sha }}
+          path: |
+            target/lambda/ingest/bootstrap.zip
+            target/lambda/ingest/bootstrap.sha256
+          if-no-files-found: error
+          retention-days: 7
