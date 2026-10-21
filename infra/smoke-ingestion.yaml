@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  Isolated, manual-invoke DMARC Tally ingestion smoke test only. No SES, DNS,
-  public endpoints, automatic S3 notifications or captured-object expiration.
+  Isolated DMARC Tally smoke test with automatic new-S3-object ingestion.
+  No SES, DNS, public endpoints or captured-object expiration.
 Parameters:
   CodeBucket:
     Type: String
@@ -23,6 +23,9 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -167,6 +170,41 @@ Resources:
           Value: dmarc-tally
         - Key: Purpose
           Value: isolated-smoke-test
+
+
+  IntakeObjectCreatedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Only new objects under the private intake prefix are ingested.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name: [!Ref IntakeBucket]
+          object:
+            key:
+              - prefix: incoming/
+      Targets:
+        - Id: DmarcTallyIngest
+          Arn: !GetAtt IngestFunction.Arn
+          InputTransformer:
+            InputPathsMap:
+              bucket: '$.detail.bucket.name'
+              key: '$.detail.object.key'
+            InputTemplate: >-
+              {"Records":[{"eventSource":"aws:s3","eventName":"ObjectCreated:Put","s3":{"bucket":{"name":"<bucket>"},"object":{"key":"<key>"}}}]}
+
+  PermitEventBridgeInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref IngestFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt IntakeObjectCreatedRule.Arn
 
 Outputs:
   IntakeBucket:

@@ -1,8 +1,9 @@
 # Isolated AWS ingestion smoke test
 
-This is a **manual, non-production** test of DMARC Tally's Rust Lambda
-ingestion path. It does not configure SES receipt rules, DNS, public access,
-web hosting, S3 object expiration or automatic S3 event notifications.
+This is a **non-production** test of DMARC Tally's Rust Lambda ingestion
+path. It supports both manual invocation and automatic S3 object-creation
+routing through EventBridge. It does not configure SES receipt rules, DNS,
+public access, web hosting or S3 object expiration.
 Use **only the synthetic .eml files in this repository**, not real email.
 
 ## Resources created
@@ -10,7 +11,7 @@ Use **only the synthetic .eml files in this repository**, not real email.
 | Stack | Contents |
 | --- | --- |
 | `dmarc-tally-smoke-artifacts` | Private encrypted S3 bucket holding one Rust Lambda ZIP |
-| `dmarc-tally-smoke` | Private test intake bucket, on-demand DynamoDB table, Rust Lambda, narrow IAM role and CloudWatch log group |
+| `dmarc-tally-smoke` | Private test intake bucket, on-demand DynamoDB table, Rust Lambda, narrow IAM role, CloudWatch log group, and scoped EventBridge creation rule |
 
 The buckets and table have CloudFormation `DeletionPolicy: Retain`
 and `UpdateReplacePolicy: Retain`. Data is *not* automatically deleted
@@ -76,7 +77,9 @@ aws cloudformation deploy \
 CloudFormation Outputs show the generated test bucket, table, function and
 log group. Lambda can read and tag only `incoming/*` objects in its
 own bucket, read/write only its test table, and write to its log group.
-No public endpoint or receipt rule is installed.
+No public endpoint or receipt rule is installed. The separate automatic
+S3-ingestion change adds a narrowly scoped EventBridge rule. The original
+manual smoke script remains available for regression testing.
 
 ## 4. Execute the synthetic verification
 
@@ -117,3 +120,34 @@ explicitly after deleting its stack.
 
 Never run recursive S3 deletion against an unverified bucket. Production
 deployment and its retention semantics are separate work.
+
+## 6. Automatic S3-triggered ingestion (separate PR)
+
+After the manual smoke test is confirmed, update the existing
+`dmarc-tally-smoke` CloudFormation stack with the version of
+`infra/smoke-ingestion.yaml` from the automatic-ingestion PR. Review the
+CloudFormation change set before executing it: the only permitted changes
+are an update to the intake bucket's EventBridge notification configuration
+and additions of the EventBridge rule and scoped Lambda invoke permission.
+**Do not accept any replacement of a bucket or table.**
+
+S3 forwards object events to EventBridge; the rule filters to
+`source=aws.s3`, `detail-type=Object Created`, this test bucket, and
+keys beginning `incoming/`. An input transformer translates that event
+into the S3 notification envelope already supported by the Rust Lambda.
+Tagging events do not match and cannot cause an ingestion loop.
+No SES or DNS configuration is involved.
+
+To test without manually invoking Lambda, upload the synthetic valid email
+as a **new key** such as `incoming/automatic-smoke-20261020.eml`. Confirm
+the S3 `captured=true` tag, DynamoDB report idempotency and CloudWatch
+invocation logs. Upload malformed XML under a second unique key: it should
+be retained untagged, with a corresponding CloudWatch log message. A
+non-`incoming/` object must not invoke Lambda.
+
+**Limitation before production:** EventBridge supplies literal object keys,
+but the existing Lambda S3 notification adapter performs form-URL-decoding.
+For this interim synthetic test use safe filenames without `+` or `%`.
+The adapter must support EventBridge's native event format or distinguish
+its key encoding before accepting real SES delivery. EventBridge's input
+transformer does not perform URL encoding.
