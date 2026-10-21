@@ -1,5 +1,6 @@
 //! Core DMARC Tally domain types and report parsing.
 
+pub mod authentication;
 pub mod identity;
 pub mod ingest;
 pub mod mail;
