@@ -1,0 +1,33 @@
+name: DynamoDB Local authentication contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/auth-dynamodb-local.yml'
+      - 'crates/tally-aws/src/auth_store.rs'
+      - 'crates/tally-aws/tests/auth_dynamodb_local.rs'
+      - 'crates/tally-aws/Cargo.toml'
+      - 'crates/tally-core/src/authentication.rs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auth-store-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      dynamodb-local:
+        image: amazon/dynamodb-local:3.3.1
+        ports:
+          - 8000:8000
+    env:
+      DYNAMODB_LOCAL_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Verify actual DynamoDB conditional behaviour without AWS credentials
+        run: cargo test -p tally-aws --test auth_dynamodb_local -- --nocapture
