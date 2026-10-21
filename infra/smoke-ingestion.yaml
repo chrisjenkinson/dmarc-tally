@@ -191,12 +191,6 @@ Resources:
       Targets:
         - Id: DmarcTallyIngest
           Arn: !GetAtt IngestFunction.Arn
-          InputTransformer:
-            InputPathsMap:
-              bucket: '$.detail.bucket.name'
-              key: '$.detail.object.key'
-            InputTemplate: >-
-              {"Records":[{"eventSource":"aws:s3","eventName":"ObjectCreated:Put","s3":{"bucket":{"name":"<bucket>"},"object":{"key":"<key>"}}}]}
 
   PermitEventBridgeInvoke:
     Type: AWS::Lambda::Permission

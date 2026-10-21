@@ -32,15 +32,20 @@ impl fmt::Display for EventError {
 
 impl std::error::Error for EventError {}
 
-/// A notification can hold more than one record. A failed record rejects the
-/// whole invocation, so AWS retries the batch and idempotent report storage
-/// prevents duplicates. Non-creation S3 notifications are simply ignored.
+/// Accept native EventBridge S3 events or direct S3 Lambda notifications.
+/// Failure rejects the invocation for retries; the report store is idempotent.
+/// Non-creation notifications are ignored.
 pub fn created_intake_objects(
     event: &Value,
     expected_bucket: &str,
 ) -> Result<Vec<IntakeObject>, EventError> {
     if expected_bucket.is_empty() {
         return Err(EventError::WrongBucket);
+    }
+    // EventBridge emits literal keys; direct S3 notifications send URL form
+    // encoded keys. Recognise the envelope before choosing key decoding.
+    if event.get("source").and_then(Value::as_str) == Some("aws.s3") {
+        return eventbridge_created_object(event, expected_bucket);
     }
     let records = event
         .get("Records")
@@ -72,15 +77,7 @@ pub fn created_intake_objects(
             .and_then(Value::as_str)
             .ok_or(EventError::MalformedRecord)?;
         let key = decode_form_key(encoded_key)?;
-        if !key.starts_with(INTAKE_PREFIX)
-            || key.len() <= INTAKE_PREFIX.len()
-            || key[INTAKE_PREFIX.len()..]
-                .split('/')
-                .any(|segment| segment.is_empty() || segment == "." || segment == "..")
-            || key.bytes().any(|ch| ch == 0 || ch == b'\\')
-        {
-            return Err(EventError::InvalidKey);
-        }
+        validate_intake_key(&key)?;
         let version_id = s3
             .pointer("/object/versionId")
             .and_then(Value::as_str)
@@ -93,6 +90,60 @@ pub fn created_intake_objects(
         });
     }
     Ok(objects)
+}
+
+fn eventbridge_created_object(
+    event: &Value,
+    expected_bucket: &str,
+) -> Result<Vec<IntakeObject>, EventError> {
+    let kind = event
+        .get("detail-type")
+        .and_then(Value::as_str)
+        .ok_or(EventError::MalformedRecord)?;
+    if kind != "Object Created" {
+        return Ok(Vec::new());
+    }
+
+    let detail = event.get("detail").ok_or(EventError::MalformedRecord)?;
+    let bucket = detail
+        .pointer("/bucket/name")
+        .and_then(Value::as_str)
+        .ok_or(EventError::MalformedRecord)?;
+    if bucket != expected_bucket {
+        return Err(EventError::WrongBucket);
+    }
+
+    let key = detail
+        .pointer("/object/key")
+        .and_then(Value::as_str)
+        .ok_or(EventError::MalformedRecord)?;
+    validate_intake_key(key)?;
+
+    // EventBridge uses "version-id", whereas S3 notifications use "versionId".
+    let version_id = detail
+        .pointer("/object/version-id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned);
+
+    Ok(vec![IntakeObject {
+        bucket: bucket.to_owned(),
+        key: key.to_owned(),
+        version_id,
+    }])
+}
+
+fn validate_intake_key(key: &str) -> Result<(), EventError> {
+    if !key.starts_with(INTAKE_PREFIX)
+        || key.len() <= INTAKE_PREFIX.len()
+        || key[INTAKE_PREFIX.len()..]
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+        || key.bytes().any(|ch| ch == 0 || ch == b'\\')
+    {
+        return Err(EventError::InvalidKey);
+    }
+    Ok(())
 }
 
 fn decode_form_key(key: &str) -> Result<String, EventError> {
