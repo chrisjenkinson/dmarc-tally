@@ -13,4 +13,5 @@ async-trait = "0.1"
 aws-sdk-dynamodb = "1"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+tokio = { version = "1", features = ["macros", "rt", "time"] }
