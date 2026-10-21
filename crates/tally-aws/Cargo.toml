@@ -12,6 +12,7 @@ serde_json = "1"
 async-trait = "0.1"
 aws-sdk-dynamodb = "1"
 aws-sdk-s3 = "1"
+getrandom = "0.4"
 tokio = { version = "1", features = ["io-util"] }
 
 [dev-dependencies]
