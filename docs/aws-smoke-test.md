@@ -133,8 +133,7 @@ and additions of the EventBridge rule and scoped Lambda invoke permission.
 
 S3 forwards object events to EventBridge; the rule filters to
 `source=aws.s3`, `detail-type=Object Created`, this test bucket, and
-keys beginning `incoming/`. An input transformer translates that event
-into the S3 notification envelope already supported by the Rust Lambda.
+keys beginning `incoming/`. The native S3 EventBridge event is passed to the Rust Lambda unchanged.
 Tagging events do not match and cannot cause an ingestion loop.
 No SES or DNS configuration is involved.
 
@@ -145,9 +144,13 @@ invocation logs. Upload malformed XML under a second unique key: it should
 be retained untagged, with a corresponding CloudWatch log message. A
 non-`incoming/` object must not invoke Lambda.
 
-**Limitation before production:** EventBridge supplies literal object keys,
-but the existing Lambda S3 notification adapter performs form-URL-decoding.
-For this interim synthetic test use safe filenames without `+` or `%`.
-The adapter must support EventBridge's native event format or distinguish
-its key encoding before accepting real SES delivery. EventBridge's input
-transformer does not perform URL encoding.
+**Native EventBridge payload upgrade (separate follow-up PR):**
+The EventBridge rule passes the original AWS event directly to the Lambda;
+there is no input transformer. The updated Rust Lambda event adapter reads
+literal keys, including `+` and `%`, without URL-decoding them. Direct S3
+Lambda notifications still follow their own form-URL-decoding rules.
+
+**Apply the updated Lambda executable before removing the transformer** on
+an active stack. Do not enable real SES delivery until the new executable
+and rule change have both been deployed and verified against unusual key
+names. Manual smoke-test invocation remains supported.

@@ -26,13 +26,9 @@ class AutomaticS3IngestionTests(unittest.TestCase):
         self.assertIn("prefix: incoming/", TEMPLATE)
         self.assertIn("Arn: !GetAtt IngestFunction.Arn", TEMPLATE)
 
-    def test_rule_transforms_event_into_existing_s3_event_contract(self):
-        self.assertIn("InputTransformer:", TEMPLATE)
-        self.assertIn("bucket: '$.detail.bucket.name'", TEMPLATE)
-        self.assertIn("key: '$.detail.object.key'", TEMPLATE)
-        self.assertIn('eventSource', TEMPLATE)
-        self.assertIn('ObjectCreated:Put', TEMPLATE)
-        self.assertIn('Records', TEMPLATE)
+    def test_rule_passes_native_eventbridge_event_without_transforming_object_key(self):
+        self.assertNotIn("InputTransformer:", TEMPLATE)
+        self.assertIn("Arn: !GetAtt IngestFunction.Arn", TEMPLATE)
 
     def test_only_the_named_event_rule_can_invoke_lambda(self):
         self.assertIn("Type: AWS::Lambda::Permission", TEMPLATE)

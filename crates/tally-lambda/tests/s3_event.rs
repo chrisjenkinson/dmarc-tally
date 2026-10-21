@@ -72,3 +72,62 @@ fn rejects_malformed_event_instead_of_acknowledging_it() {
     .is_err());
     assert!(created_intake_objects(&json!({}), "example-intake-bucket").is_err());
 }
+
+fn eventbridge_event(bucket: &str, key: &str) -> serde_json::Value {
+    json!({
+        "version": "0",
+        "source": "aws.s3",
+        "detail-type": "Object Created",
+        "detail": {
+            "bucket": {"name": bucket},
+            "object": {"key": key, "version-id": "version+1"}
+        }
+    })
+}
+
+#[test]
+fn eventbridge_keys_are_literal_including_plus_and_percent_sequences() {
+    let event = eventbridge_event(
+        "example-intake-bucket",
+        "incoming/one+two%2Fnot-decoded.eml",
+    );
+    let objects = created_intake_objects(&event, "example-intake-bucket").unwrap();
+    assert_eq!(objects.len(), 1);
+    assert_eq!(objects[0].key, "incoming/one+two%2Fnot-decoded.eml");
+    assert_eq!(objects[0].version_id.as_deref(), Some("version+1"));
+}
+
+#[test]
+fn eventbridge_rejects_wrong_bucket_and_unsafe_key() {
+    let other = eventbridge_event("other-bucket", "incoming/report.eml");
+    assert!(matches!(
+        created_intake_objects(&other, "example-intake-bucket"),
+        Err(EventError::WrongBucket)
+    ));
+    let traversal = eventbridge_event("example-intake-bucket", "incoming/../secret.eml");
+    assert!(matches!(
+        created_intake_objects(&traversal, "example-intake-bucket"),
+        Err(EventError::InvalidKey)
+    ));
+    let wrong_prefix = eventbridge_event("example-intake-bucket", "outgoing/secret.eml");
+    assert!(matches!(
+        created_intake_objects(&wrong_prefix, "example-intake-bucket"),
+        Err(EventError::InvalidKey)
+    ));
+}
+
+#[test]
+fn eventbridge_ignores_non_creation_notifications_and_rejects_malformed_creates() {
+    let mut tag_event = eventbridge_event("example-intake-bucket", "incoming/report.eml");
+    tag_event["detail-type"] = json!("Object Tags Added");
+    assert!(created_intake_objects(&tag_event, "example-intake-bucket")
+        .unwrap()
+        .is_empty());
+
+    let mut malformed = eventbridge_event("example-intake-bucket", "incoming/report.eml");
+    malformed["detail"]["object"] = json!({});
+    assert!(matches!(
+        created_intake_objects(&malformed, "example-intake-bucket"),
+        Err(EventError::MalformedRecord)
+    ));
+}
