@@ -23,7 +23,7 @@ pub struct ReportDetailViewModel {
     pub original_available: bool,
 }
 
-fn escape_html(value: &str) -> String {
+pub(crate) fn escape_html(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for ch in value.chars() {
         match ch {
@@ -38,7 +38,7 @@ fn escape_html(value: &str) -> String {
     escaped
 }
 
-fn start_page(title: &str) -> String {
+pub(crate) fn start_page(title: &str) -> String {
     let mut html = format!(
         r#"<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -59,16 +59,16 @@ table { border-collapse:collapse; width:100%; min-width:30rem; }
 th,td { text-align:left; padding:0.6rem 0.7rem; border-bottom:1px solid #8886; }
 th[scope="col"] { font-weight:650; } .table-scroll { overflow-x:auto; }
 form { display:flex; flex-wrap:wrap; align-items:end; gap:0.8rem; }
-label { display:block; font-weight:600; } select,button { font:inherit; padding:0.45rem; }
+label { display:block; font-weight:600; } select,input,button { font:inherit; padding:0.45rem; }
 .muted { opacity:0.75; } .skip { position:absolute; top:-5rem; }
 .skip:focus { top:0; background:Canvas; padding:0.5rem; }
-</style></head><body><a class="skip" href="#content">Skip to reports</a>
+</style></head><body><a class="skip" href="#content">Skip to main content</a>
 <header><h1>DMARC Tally</h1><nav><a href="/">Reports</a></nav></header><main id="content">"##,
     );
     html
 }
 
-fn finish_page(mut page: String) -> String {
+pub(crate) fn finish_page(mut page: String) -> String {
     page.push_str("</main><footer><p class=\"muted\">DMARC Tally · Counts reflect reporting receivers, not all email delivered.</p></footer></body></html>");
     page
 }
