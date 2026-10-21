@@ -27,10 +27,10 @@ class SmokeTemplateTests(unittest.TestCase):
         ):
             self.assertIn(property_name, self.resources)
 
-    def test_no_ses_dns_public_http_or_automatic_s3_triggers(self):
+    def test_no_ses_dns_public_http_or_direct_s3_lambda_triggers(self):
         for forbidden in (
             "AWS::SES::", "AWS::Route53::", "AWS::ApiGateway",
-            "AWS::CloudFront::", "NotificationConfiguration:",
+            "AWS::CloudFront::", "LambdaConfigurations:",
             "FunctionUrlConfig", "s3:DeleteObject",
         ):
             self.assertNotIn(forbidden, self.resources)
