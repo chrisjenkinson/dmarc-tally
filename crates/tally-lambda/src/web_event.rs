@@ -27,13 +27,6 @@ struct DecodedRequest {
     body: String,
 }
 
-fn safe_header<'a>(item: &'a Value, key: &str) -> Result<Option<&'a str>, ()> {
-    match item.get(key) {
-        None => Ok(None),
-        Some(value) => value.as_str().map(Some).ok_or(()),
-    }
-}
-
 fn decode(input: &Value) -> Result<DecodedRequest, ()> {
     if input.get("version").and_then(Value::as_str) != Some("2.0") {
         return Err(());
