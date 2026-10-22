@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  DMARC Tally SES receipt rule for one configured inbox, delivering raw MIME
+  to an existing same-account private intake S3 bucket. Disabled by default.
+  No SES rule-set activation, DNS changes or bucket-policy replacement.
+Parameters:
+  ReceiptRuleSetName:
+    Type: String
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '[A-Za-z0-9_-]+'
+    Description: >-
+      Existing SES receipt rule set in this region. Review its active status
+      and other rules before creating or enabling the new receipt rule.
+  ReceiptRuleName:
+    Type: String
+    Default: dmarc-tally-reports
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]'
+    Description: Stable rule name; changing it replaces the receipt rule.
+  ReceivingAddress:
+    Type: String
+    MinLength: 6
+    MaxLength: 254
+    AllowedPattern: '[^@\\s]+@[^@\\s]+'
+    Description: >-
+      Exact intended SMTP envelope recipient on an already-verified
+      dedicated receiving domain or subdomain. Do not use a shared inbox.
+  IntakeBucketName:
+    Type: String
+    MinLength: 3
+    MaxLength: 63
+    Description: >-
+      Existing private intake S3 bucket in this same AWS account and SES
+      receiving region, already configured for S3-to-EventBridge ingestion.
+  EnableReceiving:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'false'
+      - 'true'
+    Description: >-
+      Leave false until verified domain, MX/rua DNS, rule ordering, IAM and
+      S3 end-to-end tests are approved. Updating to true enables mail intake.
+
+Conditions:
+  ReceivingEnabled: !Equals [!Ref EnableReceiving, 'true']
+
+Resources:
+  SesS3DeliveryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeOnlyForThisReceiptRule
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref 'AWS::AccountId'
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:receipt-rule-set/${ReceiptRuleSetName}:receipt-rule/${ReceiptRuleName}'
+      Policies:
+        - PolicyName: PutOnlyIntoPrivateIntake
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOnlyIncomingRawMime
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${IntakeBucketName}/incoming/*'
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: ses-receiving
+
+  ReportReceiptRule:
+    Type: AWS::SES::ReceiptRule
+    Properties:
+      RuleSetName: !Ref ReceiptRuleSetName
+      Rule:
+        Name: !Ref ReceiptRuleName
+        Enabled: !If [ReceivingEnabled, true, false]
+        ScanEnabled: true
+        TlsPolicy: Optional
+        Recipients:
+          - !Ref ReceivingAddress
+        Actions:
+          - S3Action:
+              BucketName: !Ref IntakeBucketName
+              ObjectKeyPrefix: incoming/
+              IamRoleArn: !GetAtt SesS3DeliveryRole.Arn
+
+Outputs:
+  ReceiptRuleName:
+    Description: >-
+      Receipt rule created in the specified existing rule set; disabled
+      unless EnableReceiving was explicitly set to true.
+    Value: !GetAtt ReportReceiptRule.RuleName
+  SesDeliveryRoleArn:
+    Description: Dedicated single-recipient S3 delivery role.
+    Value: !GetAtt SesS3DeliveryRole.Arn
