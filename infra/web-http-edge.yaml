@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Minimal public HTTPS HTTP API v2 for DMARC Tally's existing private web
+  Lambda. The portable application validates sessions before report reads.
+  No custom domains, DNS, inbound email or data storage resources.
+Parameters:
+  WebFunctionArn:
+    Type: String
+    MinLength: 30
+    Description: >-
+      Existing private web Lambda ARN from infra/web-private.yaml in the
+      same account/region. Do not point to the ingestion Lambda.
+
+Resources:
+  WebHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-web'
+      ProtocolType: HTTP
+      DisableExecuteApiEndpoint: false
+      Description: One-administrator DMARC reporting, application-session protected.
+
+  WebLambdaProxy:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationMethod: POST
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 30000
+      IntegrationUri: !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebFunctionArn}/invocations'
+
+  WebDefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebHttpApi
+      RouteKey: '$default'
+      # Browser sign-in is public; all report access is authenticated by
+      # the tally-web gateway using persistent DynamoDB session checks.
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${WebLambdaProxy}'
+
+  EdgeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/apigateway/${AWS::StackName}-web'
+      RetentionInDays: 7
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: private-dashboard-edge
+
+  WebDefaultStage:
+    Type: AWS::ApiGatewayV2::Stage
+    DependsOn: WebDefaultRoute
+    Properties:
+      ApiId: !Ref WebHttpApi
+      StageName: '$default'
+      AutoDeploy: true
+      DefaultRouteSettings:
+        # Small single-administrator installation. These are best-effort
+        # aggregate throttling targets, not per-IP request guarantees.
+        ThrottlingBurstLimit: 5
+        ThrottlingRateLimit: 2
+      AccessLogSettings:
+        DestinationArn: !GetAtt EdgeLogGroup.Arn
+        # Deliberately avoid rawPath, rawQueryString, Cookie and any response
+        # header/content. Email login query strings contain bearer tokens.
+        Format: '{"requestId":"$context.requestId","status":"$context.status","routeKey":"$context.routeKey","responseLatency":"$context.responseLatency"}'
+
+  PermitOnlyThisApiInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WebFunctionArn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${WebHttpApi}/*/*'
+
+Outputs:
+  WebHttpsOrigin:
+    Description: >-
+      AWS-managed HTTPS site origin. Set this exact value as PUBLIC_ORIGIN on
+      the existing web Lambda before performing real sign-in tests.
+    Value: !Sub 'https://${WebHttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+  WebApiId:
+    Description: Generated API ID for CloudWatch request/error/latency metrics.
+    Value: !Ref WebHttpApi
