@@ -1,0 +1,29 @@
+name: Validate private dashboard HTTPS edge
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/web-http-edge.yml'
+      - 'infra/web-http-edge.yaml'
+      - 'tests/http_edge/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-http-edge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Check HTTP API v2, bounded throttling and secret-free logging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install cfn-lint==1.57.2
+      - run: cfn-lint --regions ap-southeast-2 -t infra/web-http-edge.yaml
+      - run: python -m unittest discover -s tests/http_edge -p 'test_*.py'
