@@ -121,7 +121,7 @@ Resources:
                     ses:FromAddress: !Ref SenderEmail
                   ForAllValues:StringEqualsIgnoreCase:
                     ses:Recipients: !Ref AdministratorEmail
-                  Null:
+                  'Null':
                     ses:Recipients: 'false'
               - Sid: WriteOnlyPrivateWebLogs
                 Effect: Allow
