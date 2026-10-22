@@ -177,9 +177,8 @@ async fn invalid_or_ambiguous_transport_envelopes_fail_closed() {
     let mut probes = vec![
         json!({"version":"1.0", "httpMethod":"GET", "path":"/"}),
         json!({"version":"2.0","rawPath":"/","headers":{}}),
-        event("GET", "/../reports", ""),
+        event("GET", "relative/reports", ""),
         event("POST", "/auth/request", &"x".repeat(3_000)),
-        event("POST", "/auth/confirm", "token=bad%xx"),
     ];
     let mut bad_b64 = event("POST", "/auth/confirm", HOSTILE_TOKEN);
     bad_b64["isBase64Encoded"] = json!(true);
@@ -201,6 +200,14 @@ async fn invalid_or_ambiguous_transport_envelopes_fail_closed() {
     }
     assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
     assert!(f.sender.0.lock().unwrap().is_empty());
+    // A syntactically valid but unsafe URL path reaches the portable router,
+    // which deliberately returns an uninformative 404 rather than reporting.
+    assert_eq!(status(&f.send(&event("GET", "/../reports", "")).await), 404);
+    assert_eq!(
+        status(&f.send(&event("POST", "/auth/confirm", "token=bad%xx")).await),
+        200 // Invalid link is an application response, not a bad AWS envelope.
+    );
+    assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
