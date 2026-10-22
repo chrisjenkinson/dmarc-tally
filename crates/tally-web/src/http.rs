@@ -201,7 +201,7 @@ fn single_form_field(data: &str, name: &str, max_len: usize) -> Option<String> {
     Some(value.into_owned())
 }
 
-fn session_cookie_value(request: &Request<'_>) -> Option<&str> {
+fn session_cookie_value<'a>(request: &Request<'a>) -> Option<&'a str> {
     let text = request.cookie?;
     if text.len() > MAX_COOKIE_BYTES {
         return None;
