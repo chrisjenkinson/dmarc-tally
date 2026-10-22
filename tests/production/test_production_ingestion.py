@@ -35,6 +35,18 @@ class ProductionIngestionContract(unittest.TestCase):
         self.assertIn("CodeKey:", PROD)
         self.assertIn("Purpose\n          Value: production", PROD)
 
+    def test_alarm_email_validation_accepts_normal_addresses(self):
+        parameters = PROD.split("Parameters:", 1)[1].split("Resources:", 1)[0]
+        recipient = re.search(
+            r"(?ms)^  NotificationEmail:\n(.*?)(?=^  [A-Za-z][A-Za-z0-9]*:\n|\Z)",
+            parameters,
+        )
+        self.assertIsNotNone(recipient)
+        allowed = re.search(r"AllowedPattern: '([^']+)'", recipient.group(1))
+        self.assertIsNotNone(allowed)
+        self.assertIsNotNone(re.fullmatch(allowed.group(1), "alerts@example.com"))
+        self.assertIsNone(re.fullmatch(allowed.group(1), "alerts invalid@example.com"))
+
     def test_production_intake_is_private_and_originals_expire_only_when_captured(self):
         bucket = resource(PROD, "IntakeBucket")
         for expected in (

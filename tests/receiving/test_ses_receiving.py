@@ -91,6 +91,18 @@ class SesReceivingRules(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, role)
 
+    def test_recipient_validation_allows_normal_addresses_and_rejects_spaces(self):
+        parameters = TEMPLATE.split("Parameters:", 1)[1].split("Conditions:", 1)[0]
+        recipient = re.search(
+            r"(?ms)^  ReceivingAddress:\n(.*?)(?=^  [A-Za-z][A-Za-z0-9]*:\n|\Z)",
+            parameters,
+        )
+        self.assertIsNotNone(recipient)
+        allowed = re.search(r"AllowedPattern: '([^']+)'", recipient.group(1))
+        self.assertIsNotNone(allowed)
+        self.assertIsNotNone(re.fullmatch(allowed.group(1), "reports@sub.example.com"))
+        self.assertIsNone(re.fullmatch(allowed.group(1), "reports invalid@example.com"))
+
     def test_no_default_real_address_or_rule_set(self):
         params = TEMPLATE.split("Parameters:", 1)[1].split("Conditions:", 1)[0]
         for name in ("ReceiptRuleSetName", "ReceivingAddress", "IntakeBucketName"):

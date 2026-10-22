@@ -23,7 +23,7 @@ Parameters:
     Type: String
     MinLength: 6
     MaxLength: 254
-    AllowedPattern: '[^@\\s]+@[^@\\s]+'
+    AllowedPattern: '[^@\s]+@[^@\s]+'
     Description: >-
       Exact intended SMTP envelope recipient on an already-verified
       dedicated receiving domain or subdomain. Do not use a shared inbox.

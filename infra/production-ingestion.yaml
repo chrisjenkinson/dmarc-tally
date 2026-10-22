@@ -20,7 +20,7 @@ Parameters:
   NotificationEmail:
     Type: String
     MinLength: 6
-    AllowedPattern: '[^@\\s]+@[^@\\s]+'
+    AllowedPattern: '[^@\s]+@[^@\s]+'
     Description: >-
       Required recipient for production CloudWatch failure alarms. The
       recipient must explicitly confirm their SNS email subscription.
