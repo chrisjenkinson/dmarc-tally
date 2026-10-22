@@ -51,17 +51,25 @@ impl EmailSender for TestSender {
 }
 
 #[derive(Default)]
-struct ReportSpy { reads: AtomicUsize }
+struct ReportSpy {
+    reads: AtomicUsize,
+}
 #[async_trait]
 impl ReportRepository for ReportSpy {
     async fn persist_report(&self, _: &StoredReport) -> Result<PersistOutcome, StoreError> {
         panic!("HTTP adapter must never persist reports")
     }
     async fn list_for_domain(
-        &self, _: &DomainName, _: DateRange, _: Option<Cursor>,
+        &self,
+        _: &DomainName,
+        _: DateRange,
+        _: Option<Cursor>,
     ) -> Result<ReportPage, StoreError> {
         self.reads.fetch_add(1, Ordering::SeqCst);
-        Ok(ReportPage { reports: vec![], next_cursor: None })
+        Ok(ReportPage {
+            reports: vec![],
+            next_cursor: None,
+        })
     }
     async fn get_report(&self, _: &ReportIdentity) -> Result<Option<StoredReport>, StoreError> {
         self.reads.fetch_add(1, Ordering::SeqCst);
@@ -100,7 +108,9 @@ impl Fixture {
         self.sender.0.lock().unwrap().last().unwrap().clone()
     }
 }
-fn status(result: &Value) -> u64 { result["statusCode"].as_u64().unwrap() }
+fn status(result: &Value) -> u64 {
+    result["statusCode"].as_u64().unwrap()
+}
 
 #[tokio::test]
 async fn missing_session_cannot_read_reports_even_with_a_hostile_host_header() {
@@ -151,7 +161,10 @@ async fn form_login_link_get_does_not_redeem_but_post_creates_revocable_cookie()
     logout["cookies"] = json!([credential]);
     let signed_out = f.send(&logout).await;
     assert_eq!(status(&signed_out), 303);
-    assert!(signed_out["cookies"][0].as_str().unwrap().contains("Max-Age=0"));
+    assert!(signed_out["cookies"][0]
+        .as_str()
+        .unwrap()
+        .contains("Max-Age=0"));
     assert_eq!(status(&f.send(&private).await), 303);
     assert_eq!(f.reports.reads.load(Ordering::SeqCst), 1);
 }
@@ -159,10 +172,18 @@ async fn form_login_link_get_does_not_redeem_but_post_creates_revocable_cookie()
 #[tokio::test]
 async fn cookie_header_is_supported_but_ambiguous_cookies_are_rejected() {
     let f = Fixture::default();
-    f.send(&event("POST", "/auth/request", "email=admin%40example.com")).await;
+    f.send(&event("POST", "/auth/request", "email=admin%40example.com"))
+        .await;
     let token = f.token();
-    let response = f.send(&event("POST", "/auth/confirm", &format!("token={token}"))).await;
-    let cookie = response["cookies"][0].as_str().unwrap().split(';').next().unwrap();
+    let response = f
+        .send(&event("POST", "/auth/confirm", &format!("token={token}")))
+        .await;
+    let cookie = response["cookies"][0]
+        .as_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
     let mut req = event("GET", "/", "");
     req["headers"]["cookie"] = json!(cookie);
     assert_eq!(status(&f.send(&req).await), 200);
@@ -204,7 +225,10 @@ async fn invalid_or_ambiguous_transport_envelopes_fail_closed() {
     // which deliberately returns an uninformative 404 rather than reporting.
     assert_eq!(status(&f.send(&event("GET", "/../reports", "")).await), 404);
     assert_eq!(
-        status(&f.send(&event("POST", "/auth/confirm", "token=bad%xx")).await),
+        status(
+            &f.send(&event("POST", "/auth/confirm", "token=bad%xx"))
+                .await
+        ),
         200 // Invalid link is an application response, not a bad AWS envelope.
     );
     assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
@@ -225,7 +249,13 @@ async fn read_only_requests_do_not_require_an_origin_header() {
     let f = Fixture::default();
     let mut login = event("GET", "/auth/login", "");
     login["headers"].as_object_mut().unwrap().remove("origin");
-    login["headers"].as_object_mut().unwrap().remove("content-type");
+    login["headers"]
+        .as_object_mut()
+        .unwrap()
+        .remove("content-type");
     assert_eq!(status(&f.send(&login).await), 200);
-    assert_eq!(status(&f.send(&event("GET", "/auth/request", "")).await), 405);
+    assert_eq!(
+        status(&f.send(&event("GET", "/auth/request", "")).await),
+        405
+    );
 }

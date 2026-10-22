@@ -7,11 +7,7 @@
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Map, Value};
-use tally_core::{
-    authentication::Authentication,
-    identity::DomainSet,
-    ports::ReportRepository,
-};
+use tally_core::{authentication::Authentication, identity::DomainSet, ports::ReportRepository};
 use tally_web::http::{handle, Request, Response, SiteOrigin};
 
 const MAX_PATH_BYTES: usize = 1024;
@@ -42,8 +38,10 @@ fn decode(input: &Value) -> Result<DecodedRequest, ()> {
     if input.get("version").and_then(Value::as_str) != Some("2.0") {
         return Err(());
     }
-    let method = input.pointer("/requestContext/http/method")
-        .and_then(Value::as_str).ok_or(())?;
+    let method = input
+        .pointer("/requestContext/http/method")
+        .and_then(Value::as_str)
+        .ok_or(())?;
     if method.is_empty() || method.len() > 12 || !method.bytes().all(|b| b.is_ascii_uppercase()) {
         return Err(());
     }
@@ -66,7 +64,9 @@ fn decode(input: &Value) -> Result<DecodedRequest, ()> {
     let mut cookie_header: Option<String> = None;
     for (key, value) in headers {
         let text = value.as_str().ok_or(())?;
-        headers_bytes = headers_bytes.saturating_add(key.len()).saturating_add(text.len());
+        headers_bytes = headers_bytes
+            .saturating_add(key.len())
+            .saturating_add(text.len());
         if headers_bytes > MAX_HEADERS_BYTES || text.contains(['\r', '\n']) {
             return Err(());
         }
@@ -103,7 +103,10 @@ fn decode(input: &Value) -> Result<DecodedRequest, ()> {
         }
         _ => return Err(()),
     };
-    if cookie.as_ref().is_some_and(|text| text.len() > MAX_COOKIE_BYTES) {
+    if cookie
+        .as_ref()
+        .is_some_and(|text| text.len() > MAX_COOKIE_BYTES)
+    {
         return Err(());
     }
 
