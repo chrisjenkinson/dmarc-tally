@@ -63,12 +63,12 @@ impl ReportRepository for SpyReports {
         _: Option<Cursor>,
     ) -> Result<ReportPage, StoreError> {
         self.reads.fetch_add(1, Ordering::SeqCst);
-        Ok(ReportPage { reports: vec![], next_cursor: None })
+        Ok(ReportPage {
+            reports: vec![],
+            next_cursor: None,
+        })
     }
-    async fn get_report(
-        &self,
-        _: &ReportIdentity,
-    ) -> Result<Option<StoredReport>, StoreError> {
+    async fn get_report(&self, _: &ReportIdentity) -> Result<Option<StoredReport>, StoreError> {
         self.reads.fetch_add(1, Ordering::SeqCst);
         Ok(None)
     }
@@ -101,7 +101,15 @@ impl Fixture {
         Authentication::new(&self.admin, &self.store, &self.email, &self.entropy)
     }
     async fn request(&self, req: Request<'_>, now: i64) -> tally_web::http::Response {
-        handle(&req, &self.auth(), &self.reports, &self.domains, &self.site, now).await
+        handle(
+            &req,
+            &self.auth(),
+            &self.reports,
+            &self.domains,
+            &self.site,
+            now,
+        )
+        .await
     }
     fn post<'a>(&self, path: &'a str, body: &'a str) -> Request<'a> {
         let mut req = Request::new("POST", path);
@@ -143,7 +151,10 @@ fn configured_site_origin_rejects_open_redirects_credentials_or_insecure_urls() 
     assert_eq!(site.as_str(), "https://private.example");
     assert_eq!(
         site.login_link(&"ab".repeat(32)).unwrap(),
-        format!("https://private.example/auth/confirm?token={}", "ab".repeat(32)),
+        format!(
+            "https://private.example/auth/confirm?token={}",
+            "ab".repeat(32)
+        ),
     );
     assert!(site.login_link("<script>").is_none());
 }
@@ -174,7 +185,13 @@ async fn login_get_does_not_consume_token_and_explicit_post_starts_revocable_ses
     }
     let cookie = f.redeem(&token, NOW + 1).await;
     assert!(cookie.starts_with("__Host-dmarc-session="));
-    for part in ["Secure", "HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=604800"] {
+    for part in [
+        "Secure",
+        "HttpOnly",
+        "SameSite=Lax",
+        "Path=/",
+        "Max-Age=604800",
+    ] {
         assert!(cookie.contains(part), "missing cookie attribute: {part}");
     }
     assert!(!cookie.contains("Domain="));
@@ -184,7 +201,9 @@ async fn login_get_does_not_consume_token_and_explicit_post_starts_revocable_ses
     assert_eq!(page.status, 200);
     assert!(page.body.contains("Report overview"));
     assert_eq!(f.reports.reads.load(Ordering::SeqCst), 1);
-    let replay = f.request(f.post("/auth/confirm", &format!("token={token}")), NOW + 1).await;
+    let replay = f
+        .request(f.post("/auth/confirm", &format!("token={token}")), NOW + 1)
+        .await;
     assert_ne!(replay.status, 303, "link may only be redeemed once");
 }
 
@@ -214,11 +233,15 @@ async fn expired_and_revoked_session_both_deny_private_data() {
 #[tokio::test]
 async fn unrecognised_addresses_and_email_failures_get_same_acknowledgement() {
     let f = Fixture::default();
-    let unknown = f.request(f.post("/auth/request", "email=unknown%40example.com"), NOW).await;
+    let unknown = f
+        .request(f.post("/auth/request", "email=unknown%40example.com"), NOW)
+        .await;
     assert_eq!(unknown.status, 200);
     assert_eq!(f.email.count(), 0);
     f.email.fail.store(true, Ordering::SeqCst);
-    let rejected = f.request(f.post("/auth/request", "email=admin%40example.com"), NOW).await;
+    let rejected = f
+        .request(f.post("/auth/request", "email=admin%40example.com"), NOW)
+        .await;
     assert_eq!(rejected.status, 200);
     assert_eq!(rejected.body, unknown.body);
     assert_eq!(f.email.count(), 0);
@@ -258,20 +281,35 @@ async fn duplicate_form_keys_and_unexpected_methods_are_rejected() {
         "email=admin%ZZexample.com",
         "email=admin%40example.com&next=https%3A%2F%2Fevil.example",
     ] {
-        assert_eq!(f.request(f.post("/auth/request", body), NOW).await.status, 400);
+        assert_eq!(
+            f.request(f.post("/auth/request", body), NOW).await.status,
+            400
+        );
     }
     assert_eq!(f.email.count(), 0);
-    assert_eq!(f.request(Request::new("GET", "/auth/request"), NOW).await.status, 405);
+    assert_eq!(
+        f.request(Request::new("GET", "/auth/request"), NOW)
+            .await
+            .status,
+        405
+    );
 }
 
 #[tokio::test]
 async fn confirm_expiry_and_malformed_tokens_never_create_sessions() {
     let f = Fixture::default();
     let token = f.login().await;
-    let expired = f.request(f.post("/auth/confirm", &format!("token={token}")), NOW + LOGIN_TTL_SECONDS).await;
+    let expired = f
+        .request(
+            f.post("/auth/confirm", &format!("token={token}")),
+            NOW + LOGIN_TTL_SECONDS,
+        )
+        .await;
     assert_eq!(expired.status, 200);
     assert!(expired.header("Set-Cookie").is_none());
-    let malformed = f.request(f.post("/auth/confirm", "token=missing"), NOW).await;
+    let malformed = f
+        .request(f.post("/auth/confirm", "token=missing"), NOW)
+        .await;
     assert_eq!(malformed.status, 200);
     assert!(malformed.header("Set-Cookie").is_none());
 }
@@ -287,6 +325,9 @@ async fn all_responses_prevent_caching_and_referrer_leakage() {
         let response = f.request(req, NOW).await;
         assert_eq!(response.header("Cache-Control"), Some("no-store"));
         assert_eq!(response.header("Referrer-Policy"), Some("no-referrer"));
-        assert!(response.header("Content-Security-Policy").unwrap().contains("form-action 'self'"));
+        assert!(response
+            .header("Content-Security-Policy")
+            .unwrap()
+            .contains("form-action 'self'"));
     }
 }
