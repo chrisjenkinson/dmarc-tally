@@ -359,6 +359,9 @@ pub async fn handle(
             }
         }
 
+        (_, "/auth/login" | "/auth/request" | "/auth/confirm" | "/auth/logout") => {
+            Response::message(405, "Method not allowed.")
+        }
         ("GET", _) => Response::message(404, "Not found."),
         _ => Response::message(405, "Method not allowed."),
     }
