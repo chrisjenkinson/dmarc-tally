@@ -1,0 +1,69 @@
+name: Package private web Lambda
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/web-lambda.yml'
+      - 'crates/tally-lambda/src/bin/web.rs'
+      - 'crates/tally-lambda/src/web_event.rs'
+      - 'crates/tally-lambda/Cargo.toml'
+      - 'crates/tally-web/**'
+      - 'crates/tally-aws/src/auth_store.rs'
+      - 'crates/tally-aws/src/ses_email.rs'
+      - 'crates/tally-aws/src/entropy.rs'
+      - 'Cargo.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-lambda-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Compile private HTTP Lambda and verify x86-64 ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          bins: cargo-lambda@1.9.1
+          cache-target: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: '0.14.0'
+      - name: Compile web Lambda with locked dependencies
+        run: cargo lambda build --release --locked --package tally-lambda --bin web --output-format zip
+      - name: Verify executable ZIP and checksum
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          path = Path("target/lambda/web/bootstrap.zip")
+          assert path.is_file(), "Missing private web Lambda archive"
+          with ZipFile(path) as archive:
+              assert "bootstrap" in archive.namelist(), "Missing root bootstrap executable"
+              info = archive.getinfo("bootstrap")
+              executable = archive.read("bootstrap")
+              assert executable.startswith(b"\x7fELF"), "Expected Linux ELF"
+              assert executable[4] == 2, "Expected 64-bit executable"
+              assert int.from_bytes(executable[18:20], "little") == 62, "Expected x86-64"
+              assert info.external_attr >> 16 & 0o111, "Bootstrap not executable"
+              print("Verified private web Lambda executable", len(executable), "bytes")
+          PY
+          (cd target/lambda/web && sha256sum bootstrap.zip > bootstrap.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: private-web-lambda-${{ github.sha }}
+          path: |
+            target/lambda/web/bootstrap.zip
+            target/lambda/web/bootstrap.sha256
+          if-no-files-found: error
+          retention-days: 7

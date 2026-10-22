@@ -57,6 +57,16 @@ All application responses include `Cache-Control: no-store`,
 restrictive content-security policy. The event decoder returns generic
 HTTP 400 errors for invalid transports without echoing credentials.
 
+## Compiled executable
+
+GitHub Actions runs the source tests in the Rust workflow, and the
+path-scoped `.github/workflows/web-lambda.yml` workflow additionally builds
+the x86-64 `provided.al2023` Rust Lambda ZIP without AWS credentials.
+It verifies that the archive contains an executable Linux `bootstrap`,
+then publishes a seven-day GitHub artifact with a SHA-256 manifest.
+This file is **not deployed** by CI. Keep a reviewed, immutable artifact
+version for the future CloudFormation stack.
+
 ## Before any public or production deployment
 
 - Configure a **private** Lambda role with narrowly scoped DynamoDB
