@@ -2387,6 +2387,7 @@ dependencies = [
  "form_urlencoded",
  "tally-core",
  "tokio",
+ "url",
 ]
 
 [[package]]

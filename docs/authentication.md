@@ -90,8 +90,31 @@ requiring another link.
 - Use the same application behaviour for any CLI administration function,
   rather than creating a separate authentication state machine.
 
+The portable `tally-web::http` handler is now implemented but **not
+deployed**. It accepts already-decoded request fields; verifies configured
+HTTPS origin for POST; enforces session checks **before any report query**;
+shows emailed GET links without consuming them; redeems only on an explicit
+POST; and issues or clears Secure, HttpOnly, SameSite=Lax, Path=/ session
+cookies. All responses set `Cache-Control: no-store`, a no-referrer policy
+and a restrictive content-security policy.
+
+The login request POST has a generic response regardless of account
+recognition or mail-delivery errors; this does not eliminate possible timing
+differences, so the deployed HTTP edge should also use conservative request
+limits. Report details and original-email retrieval are deliberately not
+implemented: the routing gateway rejects these paths until a subsequent
+authenticated read use case is available.
+
+The hosting adapter must map method/path/query/form-body/Origin/Cookie
+without trusting Host or Forwarded headers, enforce decoded-body size limits,
+avoid logging cookies and query strings containing link tokens, and reject
+malformed or multiple credential headers. `tally-web` intentionally has no
+AWS SDK, HTTP listener or public routing infrastructure. A future Lambda
+entry point must call this same handler rather than implementing another,
+possibly bypassable authorization path.
+
 There is currently **no deployed authentication feature**. The separate
-future integration must implement the DynamoDB store, CSPRNG source, SES
-sender, private HTTP handlers/middleware, HTTPS configuration, and negative
-tests proving unauthenticated users cannot read either reports or original
-messages.
+integration still needs a verified SES sender, CloudFormation authentication
+table and scoped IAM, HTTPS hosting and Lambda request adapter, and end-to-end
+checks proving unauthenticated users cannot access report content or
+retained original messages.
