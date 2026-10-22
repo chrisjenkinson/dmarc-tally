@@ -76,6 +76,7 @@ pub(crate) fn finish_page(mut page: String) -> String {
 pub fn render_report_page(view: &ReportViewModel) -> String {
     let mut html = start_page("Overview");
     html.push_str("<h2>Report overview</h2><p>These are messages observed in DMARC reports, not a count of emails sent.</p>");
+    html.push_str(r#"<form method="post" action="/auth/logout"><button type="submit">Sign out</button></form>"#);
     html.push_str(r#"<form method="get" action="/"><div><label for="domain">Domain</label><select name="domain" id="domain">"#);
     html.push_str(if view.selected_domain.is_none() {
         r#"<option value="all" selected>All domains</option>"#
@@ -152,6 +153,7 @@ pub fn render_report_detail(view: &ReportDetailViewModel) -> String {
     let r = &view.report;
     let mut html = start_page("Report details");
     html.push_str("<h2>Report details</h2>");
+    html.push_str(r#"<form method="post" action="/auth/logout"><button type="submit">Sign out</button></form>"#);
     html.push_str(&format!(
         "<p><strong>Reporting organisation:</strong> {}<br><strong>Domain:</strong> {}<br><strong>Report ID:</strong> {}</p>",
         escape_html(&r.identity.organisation),
