@@ -1,0 +1,182 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Private DMARC Tally web Lambda and dedicated authentication persistence.
+  No public HTTP API, function URL, DNS, SES identity or mail receiving.
+Parameters:
+  CodeBucket:
+    Type: String
+    MinLength: 3
+    Description: Same-region private S3 artifact bucket holding the reviewed web/bootstrap.zip.
+  CodeKey:
+    Type: String
+    MinLength: 1
+    Description: Immutable version-specific key of the reviewed web Lambda ZIP.
+  ReportsTableName:
+    Type: String
+    MinLength: 3
+    Description: Existing private DMARC report table in this account/region.
+  MonitoredDomains:
+    Type: String
+    MinLength: 3
+    AllowedPattern: '[A-Za-z0-9.,-]+'
+    Description: Explicit comma-separated domain allowlist for reporting.
+  AdministratorEmail:
+    Type: String
+    MinLength: 6
+    NoEcho: true
+    Description: Sole administrator; user input cannot change this recipient.
+  SenderEmail:
+    Type: String
+    MinLength: 6
+    NoEcho: true
+    Description: Explicit From address for a separately verified SES sending identity.
+  VerifiedSenderIdentity:
+    Type: String
+    MinLength: 3
+    Description: Exact verified SES domain or address used to scope ses:SendEmail.
+  PublicOrigin:
+    Type: String
+    MinLength: 9
+    AllowedPattern: 'https://[^/?#]+/?'
+    Description: >-
+      Configured trusted HTTPS origin; no endpoint is created here. The Rust
+      application performs the authoritative URL/security validation.
+
+Resources:
+  AuthTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+      # Only session records carry ExpiresAt. The permanent login challenge
+      # instead uses ChallengeExpiresAt and preserves its issuance cooldown.
+      TimeToLiveSpecification:
+        AttributeName: ExpiresAt
+        Enabled: true
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: private-web-authentication
+
+  WebLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-web'
+      RetentionInDays: 7
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: private-web-logs
+
+  WebRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PrivateWebCapabilitiesOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadWriteOnlyAuthenticationState
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource: !GetAtt AuthTable.Arn
+              - Sid: ReadOnlyDMARCReports
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ReportsTableName}'
+              - Sid: SendOnlyConfiguredSESAddress
+                Effect: Allow
+                Action: ses:SendEmail
+                Resource: !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${VerifiedSenderIdentity}'
+                Condition:
+                  StringEqualsIgnoreCase:
+                    ses:FromAddress: !Ref SenderEmail
+                  ForAllValues:StringEqualsIgnoreCase:
+                    ses:Recipients: !Ref AdministratorEmail
+                  'Null':
+                    ses:Recipients: 'false'
+              - Sid: WriteOnlyPrivateWebLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-web:*'
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: private-web-role
+
+  WebFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: WebLogGroup
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-web'
+      Description: Private DMARC Tally web application; no public invocation permission.
+      PackageType: Zip
+      Runtime: provided.al2023
+      Handler: bootstrap
+      Architectures:
+        - x86_64
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref CodeKey
+      Role: !GetAtt WebRole.Arn
+      Timeout: 30
+      MemorySize: 512
+      ReservedConcurrentExecutions: 2
+      Environment:
+        Variables:
+          AUTH_TABLE: !Ref AuthTable
+          REPORTS_TABLE: !Ref ReportsTableName
+          MONITORED_DOMAINS: !Ref MonitoredDomains
+          ADMIN_EMAIL: !Ref AdministratorEmail
+          SES_FROM_EMAIL: !Ref SenderEmail
+          PUBLIC_ORIGIN: !Ref PublicOrigin
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: private-web-lambda
+
+Outputs:
+  WebFunctionArn:
+    Description: Private Lambda ARN; no public HTTP URL is provisioned.
+    Value: !GetAtt WebFunction.Arn
+  WebFunctionName:
+    Description: Private Lambda name for approved synthetic manual tests.
+    Value: !Ref WebFunction
+  AuthTableName:
+    Description: Dedicated encrypted authentication state; retained on stack deletion.
+    Value: !Ref AuthTable
+  WebLogGroupName:
+    Description: Seven-day private Lambda diagnostic log group.
+    Value: !Ref WebLogGroup
