@@ -1,0 +1,415 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Production DMARC Tally private S3/EventBridge/Lambda report ingestion.
+  No SES, DNS or public HTTP endpoints. Expire only captured raw MIME.
+Parameters:
+  CodeBucket:
+    Type: String
+    MinLength: 3
+    Description: Same-region, private bucket already holding the bootstrap.zip.
+  CodeKey:
+    Type: String
+    MinLength: 1
+    Description: Immutable S3 object key for the compiled Rust bootstrap.zip.
+  MonitoredDomains:
+    Type: String
+    MinLength: 3
+    AllowedPattern: '[a-zA-Z0-9.,-]+'
+    Description: Required, comma-separated configured DMARC reporting domains.
+
+  NotificationEmail:
+    Type: String
+    MinLength: 6
+    AllowedPattern: '[^@\s]+@[^@\s]+'
+    Description: >-
+      Required recipient for production CloudWatch failure alarms. The
+      recipient must explicitly confirm their SNS email subscription.
+
+Resources:
+  IntakeBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+      LifecycleConfiguration:
+        Rules:
+          # Only fully persisted and tagged incoming messages are eligible.
+          # S3 counts days from object creation; expiry is asynchronous.
+          - Id: ExpireOnlyCapturedOriginals
+            Prefix: incoming/
+            Status: Enabled
+            TagFilters:
+              - Key: captured
+                Value: 'true'
+            ExpirationInDays: 1
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: production
+
+  IntakeBucketTlsPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref IntakeBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt IntakeBucket.Arn
+              - !Sub '${IntakeBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  ReportsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: production
+
+  EventBridgeFailureQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: production
+
+  LambdaFailureQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: production
+
+  EventBridgeFailureQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref EventBridgeFailureQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: OnlyThisIntakeRuleMaySendFailures
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt EventBridgeFailureQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt IntakeObjectCreatedRule.Arn
+
+  FailureAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: production
+
+  FailureAlertTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref FailureAlertTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: OnlyStackAlarmsMayPublish
+            Effect: Allow
+            Principal:
+              Service: cloudwatch.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref FailureAlertTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${AWS::StackName}-*'
+
+  FailureEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref FailureAlertTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  IngestLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-ingest'
+      RetentionInDays: 7
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: production
+
+  IngestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: IngestOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadAndTagOnlyProductionInput
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetObjectTagging
+                  - s3:GetObjectVersionTagging
+                  - s3:PutObjectTagging
+                  - s3:PutObjectVersionTagging
+                Resource: !Sub '${IntakeBucket.Arn}/incoming/*'
+              - Sid: ReadAndWriteOnlyProductionTable
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource: !GetAtt ReportsTable.Arn
+              - Sid: WriteOnlyLambdaFailureQueue
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt LambdaFailureQueue.Arn
+              - Sid: WriteOnlyProductionLogGroup
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-ingest:*'
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: production
+
+  IngestFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: IngestLogGroup
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-ingest'
+      Description: Private production S3/EventBridge ingestion; no public invocation.
+      PackageType: Zip
+      Runtime: provided.al2023
+      Handler: bootstrap
+      Architectures:
+        - x86_64
+      Role: !GetAtt IngestRole.Arn
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref CodeKey
+      Timeout: 90
+      MemorySize: 512
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          INTAKE_BUCKET: !Ref IntakeBucket
+          REPORTS_TABLE: !Ref ReportsTable
+          MONITORED_DOMAINS: !Ref MonitoredDomains
+      Tags:
+        - Key: Project
+          Value: dmarc-tally
+        - Key: Purpose
+          Value: production
+
+  IngestFailureInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref IngestFunction
+      Qualifier: '$LATEST'
+      MaximumRetryAttempts: 2
+      MaximumEventAgeInSeconds: 21600
+      DestinationConfig:
+        OnFailure:
+          Destination: !GetAtt LambdaFailureQueue.Arn
+
+  IntakeObjectCreatedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Only new objects under the private intake prefix are ingested.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name: [!Ref IntakeBucket]
+          object:
+            key:
+              - prefix: incoming/
+      Targets:
+        - Id: DmarcTallyIngest
+          Arn: !GetAtt IngestFunction.Arn
+          DeadLetterConfig:
+            Arn: !GetAtt EventBridgeFailureQueue.Arn
+
+  PermitEventBridgeInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref IngestFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt IntakeObjectCreatedRule.Arn
+
+  EventBridgeFailureBacklogAlarm:
+    Type: AWS::CloudWatch::Alarm
+    DependsOn: FailureAlertTopicPolicy
+    Properties:
+      AlarmDescription: EventBridge failed to deliver an intake event; inspect its private failure queue.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt EventBridgeFailureQueue.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref FailureAlertTopic
+
+  LambdaFailureBacklogAlarm:
+    Type: AWS::CloudWatch::Alarm
+    DependsOn: FailureAlertTopicPolicy
+    Properties:
+      AlarmDescription: Lambda exhausted asynchronous ingestion retries; inspect its private failure queue.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt LambdaFailureQueue.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref FailureAlertTopic
+
+  EventBridgeDlqDeliveryFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    DependsOn: FailureAlertTopicPolicy
+    Properties:
+      AlarmDescription: EventBridge could not enqueue an undelivered intake event; investigate possible loss.
+      Namespace: AWS/Events
+      MetricName: InvocationsFailedToBeSentToDlq
+      Dimensions:
+        - Name: RuleName
+          Value: !Ref IntakeObjectCreatedRule
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref FailureAlertTopic
+
+  LambdaDestinationDeliveryFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    DependsOn: FailureAlertTopicPolicy
+    Properties:
+      AlarmDescription: Lambda could not enqueue a failed asynchronous invocation; investigate possible loss.
+      Namespace: AWS/Lambda
+      MetricName: DestinationDeliveryFailures
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref IngestFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref FailureAlertTopic
+
+Outputs:
+  IntakeBucket:
+    Description: Production private intake bucket (original MIME under incoming/).
+    Value: !Ref IntakeBucket
+  ReportsTable:
+    Description: Private, on-demand DynamoDB table.
+    Value: !Ref ReportsTable
+  IngestFunction:
+    Description: Private production ingest Lambda (manual replay requires approval).
+    Value: !Ref IngestFunction
+  IngestLogGroup:
+    Description: CloudWatch log group, 7-day retention.
+    Value: !Ref IngestLogGroup
+  EventBridgeFailureQueueUrl:
+    Description: Private queue holding failed EventBridge target deliveries, retained for 14 days.
+    Value: !Ref EventBridgeFailureQueue
+  LambdaFailureQueueUrl:
+    Description: Private queue holding failed Lambda asynchronous invocations, retained for 14 days.
+    Value: !Ref LambdaFailureQueue
+  FailureAlertTopicArn:
+    Description: SNS topic used by the four generic failure alarms; subscribe to receive notices.
+    Value: !Ref FailureAlertTopic

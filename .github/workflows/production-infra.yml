@@ -1,0 +1,29 @@
+name: Validate production ingestion infrastructure
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/production-infra.yml'
+      - 'infra/production-*.yaml'
+      - 'tests/production/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-infra-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Check production intake privacy, captured-only expiry and alarms
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install cfn-lint==1.57.2
+      - run: cfn-lint --regions ap-southeast-2 -t infra/production-artifacts.yaml infra/production-ingestion.yaml
+      - run: python -m unittest discover -s tests/production -p 'test_*.py'
