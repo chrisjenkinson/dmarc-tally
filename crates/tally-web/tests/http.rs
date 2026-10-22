@@ -233,7 +233,8 @@ async fn cross_origin_posts_cannot_send_email_consume_tokens_or_sign_out() {
     assert_eq!(f.email.count(), 0);
 
     let token = f.login().await;
-    let mut request = f.post("/auth/confirm", &format!("token={token}"));
+    let confirmation_body = format!("token={token}");
+    let mut request = f.post("/auth/confirm", &confirmation_body);
     request.origin = Some("null");
     assert_eq!(f.request(request, NOW).await.status, 403);
     let cookie = f.redeem(&token, NOW).await;
