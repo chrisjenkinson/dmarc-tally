@@ -46,9 +46,7 @@ impl SiteOrigin {
     pub fn parse(value: &str) -> Result<Self, InvalidSiteOrigin> {
         // Reject backslash normalization, encoded authority separators and
         // whitespace that a URL parser might otherwise normalize away.
-        if value.contains(['\\', '%', '?', '#'])
-            || value.chars().any(char::is_whitespace)
-        {
+        if value.contains(['\\', '%', '?', '#']) || value.chars().any(char::is_whitespace) {
             return Err(InvalidSiteOrigin);
         }
         let url = Url::parse(value).map_err(|_| InvalidSiteOrigin)?;
@@ -167,7 +165,11 @@ fn valid_form_type(request: &Request<'_>) -> bool {
     request
         .content_type
         .and_then(|value| value.split(';').next())
-        .is_some_and(|value| value.trim().eq_ignore_ascii_case("application/x-www-form-urlencoded"))
+        .is_some_and(|value| {
+            value
+                .trim()
+                .eq_ignore_ascii_case("application/x-www-form-urlencoded")
+        })
 }
 
 fn valid_percent_escapes(input: &str) -> bool {
@@ -338,7 +340,11 @@ pub async fn handle(
             }
             let selection = match OverviewSelection::parse(request.query, domains) {
                 Ok(selection) => selection,
-                Err(SelectionError::MalformedQuery | SelectionError::InvalidPeriod | SelectionError::UnconfiguredDomain) => {
+                Err(
+                    SelectionError::MalformedQuery
+                    | SelectionError::InvalidPeriod
+                    | SelectionError::UnconfiguredDomain,
+                ) => {
                     return Response::message(400, "Invalid report filter.");
                 }
             };
