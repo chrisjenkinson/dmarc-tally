@@ -1,0 +1,29 @@
+name: Validate private web infrastructure
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/web-infra.yml'
+      - 'infra/web-private.yaml'
+      - 'tests/deployment/test_web_private.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-infra-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Check private web CloudFormation and access boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install cfn-lint==1.57.2
+      - run: cfn-lint --regions ap-southeast-2 -t infra/web-private.yaml
+      - run: python -m unittest discover -s tests/deployment -p 'test_web_private.py'
