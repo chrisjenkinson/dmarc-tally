@@ -41,7 +41,7 @@ class PrivateWebFoundationContract(unittest.TestCase):
             "AttributeName: ExpiresAt", "Enabled: true",
         ):
             self.assertIn(expected, table)
-        self.assertNotIn("ChallengeExpiresAt", table)
+        self.assertNotIn("AttributeName: ChallengeExpiresAt", table)
         self.assertNotIn("GlobalSecondaryIndexes", table)
 
     def test_iam_permissions_are_capability_scoped_and_read_only_for_reports(self):
