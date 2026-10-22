@@ -55,6 +55,9 @@ class PrivateWebFoundationContract(unittest.TestCase):
             "Resource: !Sub",
             "ses:SendEmail",
             "ses:FromAddress: !Ref SenderEmail",
+            "ForAllValues:StringEqualsIgnoreCase:",
+            "ses:Recipients: !Ref AdministratorEmail",
+            "ses:Recipients: 'false'",
             "identity/${VerifiedSenderIdentity}",
             "logs:CreateLogStream", "logs:PutLogEvents",
         ):

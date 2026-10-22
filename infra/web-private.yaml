@@ -117,8 +117,12 @@ Resources:
                 Action: ses:SendEmail
                 Resource: !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${VerifiedSenderIdentity}'
                 Condition:
-                  StringEquals:
+                  StringEqualsIgnoreCase:
                     ses:FromAddress: !Ref SenderEmail
+                  ForAllValues:StringEqualsIgnoreCase:
+                    ses:Recipients: !Ref AdministratorEmail
+                  Null:
+                    ses:Recipients: 'false'
               - Sid: WriteOnlyPrivateWebLogs
                 Effect: Allow
                 Action:

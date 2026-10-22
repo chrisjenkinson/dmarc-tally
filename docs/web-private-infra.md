@@ -29,7 +29,10 @@ The installer must explicitly supply:
 - `AdministratorEmail`: exactly one administrator and permitted link recipient.
 - `SenderEmail`: the SES From address. `VerifiedSenderIdentity` is the
   specific verified email or parent domain IAM is allowed to use. Send rights
-  additionally require `ses:FromAddress` to equal `SenderEmail` exactly.
+  additionally restrict `ses:FromAddress` to `SenderEmail` and **all**
+  `ses:Recipients` to the sole `AdministratorEmail`, ignoring email
+  address case and denying absent recipient lists. This is defence in
+  depth even if an adapter is accidentally changed.
   This template never verifies or changes an SES identity.
 - `PublicOrigin`: a separately planned trusted HTTPS origin. This template
   does **not** configure that URL or provide DNS. The web binary validates
