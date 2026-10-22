@@ -5,6 +5,7 @@ checks DynamoDB sessions before reading any report data. No deployments
 or AWS credentials are involved in these static tests.
 """
 from pathlib import Path
+import json
 import re
 import unittest
 
@@ -86,9 +87,10 @@ class HttpApiEdgeTests(unittest.TestCase):
         self.assertIn("RetentionInDays: 7", log_group)
         self.assertIn("AccessLogSettings:", stage)
         self.assertIn("DestinationArn: !GetAtt EdgeLogGroup.Arn", stage)
-        pattern = re.search(r"(?m)^          Format: '([^']+)'$", stage)
+        pattern = re.search(r"(?m)^        Format: '([^']+)'$", stage)
         self.assertIsNotNone(pattern, "Expected auditable one-line JSON logging format")
         raw = pattern.group(1)
+        self.assertEqual(set(json.loads(raw)), {"requestId", "status", "routeKey", "responseLatency"})
         variables = set(re.findall(r"\$context\.[A-Za-z.]+", raw))
         self.assertEqual(
             variables,
