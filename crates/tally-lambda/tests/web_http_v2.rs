@@ -235,6 +235,26 @@ async fn invalid_or_ambiguous_transport_envelopes_fail_closed() {
 }
 
 #[tokio::test]
+async fn null_body_query_and_cookie_fields_are_absent_in_http_v2_gets() {
+    let f = Fixture::default();
+    let mut req = event("GET", "/auth/login", "");
+    req["body"] = Value::Null;
+    req["cookies"] = Value::Null;
+    req["rawQueryString"] = Value::Null;
+    assert_eq!(status(&f.send(&req).await), 200);
+
+    let mut protected = event("GET", "/", "");
+    protected["body"] = Value::Null;
+    protected["cookies"] = Value::Null;
+    assert_eq!(status(&f.send(&protected).await), 303);
+    assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
+
+    // Absent values are fine, but a number instead of a query string isn't.
+    protected["rawQueryString"] = json!(123);
+    assert_eq!(status(&f.send(&protected).await), 400);
+}
+
+#[tokio::test]
 async fn wrong_origin_rejected_even_if_host_is_trusted() {
     let f = Fixture::default();
     let mut post = event("POST", "/auth/request", "email=admin%40example.com");

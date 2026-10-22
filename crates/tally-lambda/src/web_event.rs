@@ -49,7 +49,11 @@ fn decode(input: &Value) -> Result<DecodedRequest, ()> {
     if !path.starts_with('/') || path.len() > MAX_PATH_BYTES {
         return Err(());
     }
-    let query = safe_header(input, "rawQueryString")?.unwrap_or("");
+    let query = match input.get("rawQueryString") {
+        None | Some(Value::Null) => "",
+        Some(Value::String(value)) => value.as_str(),
+        _ => return Err(()),
+    };
     if query.len() > MAX_QUERY_BYTES {
         return Err(());
     }
@@ -83,7 +87,7 @@ fn decode(input: &Value) -> Result<DecodedRequest, ()> {
     }
 
     let cookie = match input.get("cookies") {
-        None => cookie_header,
+        None | Some(Value::Null) => cookie_header,
         Some(Value::Array(cookies)) if cookies.is_empty() => cookie_header,
         Some(Value::Array(cookies)) => {
             if cookie_header.is_some() || cookies.len() > 32 {
@@ -115,7 +119,11 @@ fn decode(input: &Value) -> Result<DecodedRequest, ()> {
         Some(Value::Bool(value)) => *value,
         _ => return Err(()),
     };
-    let raw = safe_header(input, "body")?.unwrap_or("");
+    let raw = match input.get("body") {
+        None | Some(Value::Null) => "",
+        Some(Value::String(value)) => value.as_str(),
+        _ => return Err(()),
+    };
     let body = if is_base64 {
         // Decode only small inputs. The body is form data, never a raw report.
         if raw.len() > MAX_BODY_BYTES * 2 {
