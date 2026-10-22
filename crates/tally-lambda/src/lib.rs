@@ -2,3 +2,4 @@
 
 pub mod ingestion;
 pub mod s3_event;
+pub mod web_event;

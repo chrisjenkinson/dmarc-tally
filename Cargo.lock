@@ -2399,10 +2399,13 @@ dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
  "aws-sdk-s3",
+ "aws-sdk-sesv2",
+ "base64 0.22.1",
  "lambda_runtime",
  "serde_json",
  "tally-aws",
  "tally-core",
+ "tally-web",
  "tokio",
 ]
 
