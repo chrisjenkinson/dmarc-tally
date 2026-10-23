@@ -18,6 +18,7 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-dynamodb = "1"
 aws-sdk-s3 = "1"
 aws-sdk-sesv2 = "1"
+aws-sdk-ses = "1"
 
 [dev-dependencies]
 

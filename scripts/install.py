@@ -318,6 +318,9 @@ def parameters(component: str, cfg: dict, outputs: dict, release: dict) -> dict:
             "ReportsTableName": outputs["ingestion"]["ReportsTable"],
             "MonitoredDomains": domains, "AdministratorEmail": email["administrator"],
             "ReceivingAddress": email["receiving"],
+            "ReceiptRuleSetName": email["receipt_rule_set"],
+            "ReceiptRuleName": email["receipt_rule_name"],
+            "IntakeBucketName": outputs["ingestion"]["IntakeBucket"],
             "SenderEmail": email["sender"], "VerifiedSenderIdentity": email["sender_identity"],
             "PublicOrigin": outputs.get("edge", {}).get("WebHttpsOrigin", BOOTSTRAP_ORIGIN),
         }

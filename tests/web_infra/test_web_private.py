@@ -54,6 +54,8 @@ class PrivateWebFoundationContract(unittest.TestCase):
             "dynamodb:Query",
             "Resource: !Sub",
             "ses:SendEmail", "ses:GetEmailIdentity",
+            "ses:DescribeActiveReceiptRuleSet",
+            "Sid: ReadActiveSesReceiptRules",
             "Sid: ReadConfiguredSesIdentityStatus",
             "identity/${VerifiedSenderIdentity}",
             "ReceivingIdentityDomain: !Select [1, !Split ['@', !Ref ReceivingAddress]]",
@@ -68,9 +70,16 @@ class PrivateWebFoundationContract(unittest.TestCase):
         for forbidden in (
             "dynamodb:Scan", "dynamodb:*", "ses:*",
             "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
-            "logs:CreateLogGroup", "Action: '*'", "Resource: '*'",
+            "logs:CreateLogGroup", "Action: '*'",
         ):
             self.assertNotIn(forbidden, role)
+        # Only this SES read operation needs a wildcard resource; it is
+        # constrained to the deployed AWS region and grants no mutation.
+        self.assertEqual(role.count("Resource: '*'"), 1)
+        ses_read = re.search(r"Sid: ReadActiveSesReceiptRules\n(.*?)(?=\n              - Sid:)", role, re.S)
+        self.assertIsNotNone(ses_read)
+        self.assertIn("ses:DescribeActiveReceiptRuleSet", ses_read.group(1))
+        self.assertIn("aws:RequestedRegion: !Ref 'AWS::Region'", ses_read.group(1))
         # Read-only reporting: report permissions must NOT share an IAM
         # statement with authentication writes.
         report_read = re.search(r"Sid: ReadOnlyDMARCReports\n(.*?)(?=\n              - Sid:|\n      Tags:)", role, re.S)
@@ -100,7 +109,12 @@ class PrivateWebFoundationContract(unittest.TestCase):
             "MONITORED_DOMAINS: !Ref MonitoredDomains",
         ):
             self.assertIn(expected, function)
-        self.assertNotIn("INTAKE_BUCKET", function)
+        for expected in (
+            "INTAKE_BUCKET: !Ref IntakeBucketName",
+            "SES_RECEIPT_RULE_SET: !Ref ReceiptRuleSetName",
+            "SES_RECEIPT_RULE_NAME: !Ref ReceiptRuleName",
+        ):
+            self.assertIn(expected, function)
         self.assertNotIn("FunctionUrlConfig", function)
         self.assertNotIn("VpcConfig", function)
 

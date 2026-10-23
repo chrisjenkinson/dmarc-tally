@@ -26,11 +26,22 @@ missing or inaccessible identity records) remain **Unable to check**, not
 Ready. Verification of a parent identity can apply to subdomains, so
 exact-domain verification status is not conclusive proof of mail delivery.
 
-The active receipt rule, exact recipient, S3 bucket/prefix and rule ordering
-still require an on-demand SES classic API inspector in a subsequent PR.
-DNS MX / DMARC rua, true successful end-to-end delivery and operational
-alarm testing require distinct evidence; until then, the UI marks them
-**Not verified**. A verified identity alone does not prove incoming delivery.
+The on-demand **classic SES** `DescribeActiveReceiptRuleSet` inspector
+checks whether the configured receipt rule set is active; the expected
+receipt rule exists and is enabled; it targets only the configured address;
+and its single S3 action writes to the configured production intake bucket
+and `incoming/` prefix, with no SES client-side KMS encryption and a
+configured SES delivery IAM role. The read-only API is rate-limited by AWS
+to once per second; it runs only after an authenticated setup-page request.
+The permission has no resource-level scope, so IAM limits it to this one
+read action in the deployment region. No rule set is ever activated by
+this inspector.
+
+A **Ready** receipt-rule status proves only these observed settings.
+Earlier rules, IAM role permission issues, bucket policy, DNS MX/rua,
+S3 EventBridge notification routing and ingestion can still prevent delivery.
+True successful end-to-end delivery and operational alarm testing require
+distinct evidence; until then, the UI marks those checks **Not verified**.
 
 `RECEIVING_ADDRESS` is provided to the web Lambda through the generic
 CloudFormation `ReceivingAddress` parameter and `scripts/install.py` from
@@ -44,8 +55,11 @@ scheduled polling or a separate setup aggregate for one administrator.
 
 A reviewed future CloudFormation update is necessary to grant the web
 Lambda narrowly scoped `ses:GetEmailIdentity` for the configured sender and
-receiving-domain identities and to supply `SES_SENDER_IDENTITY`. Until
-deployed, the existing Lambda is unchanged.
+receiving-domain identities, and `ses:DescribeActiveReceiptRuleSet` in the
+deployed region. The generic installer supplies identity, rule and production
+intake bucket parameters from the ignored local configuration plus ingestion
+stack outputs. Until a separately approved deployment, the existing Lambda
+is unchanged.
 
 No AWS or DNS changes are made by merging this source change. A green installation
 badge must never be shown until individual checks are backed by real

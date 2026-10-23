@@ -7,3 +7,4 @@ pub mod entropy;
 pub mod s3;
 pub mod ses_email;
 pub mod ses_identity;
+pub mod ses_receiving;
