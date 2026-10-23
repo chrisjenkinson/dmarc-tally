@@ -1,0 +1,25 @@
+name: Temporary merged dependency resolution
+on:
+  push:
+    branches: [feat/setup-alert-readiness]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: |
+          cargo metadata --format-version 1 > /dev/null
+          cargo fmt --all
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .
+            git commit -m "build: reconcile alarm and DNS dependencies and format"
+            git push
+          fi
