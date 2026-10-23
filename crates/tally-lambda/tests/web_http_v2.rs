@@ -119,6 +119,7 @@ async fn missing_session_cannot_read_reports_even_with_a_hostile_host_header() {
     assert_eq!(status(&response), 303);
     assert_eq!(response["headers"]["Location"], "/auth/login");
     assert_eq!(response["headers"]["Cache-Control"], "no-store");
+    assert_eq!(response["headers"]["Referrer-Policy"], "strict-origin");
     assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
     for path in ["/reports/abc", "/reports/abc/original"] {
         assert_eq!(status(&f.send(&event("GET", path, "")).await), 303);
@@ -216,6 +217,8 @@ async fn invalid_or_ambiguous_transport_envelopes_fail_closed() {
         let response = f.send(&input).await;
         assert_eq!(status(&response), 400, "unexpected: {response:?}");
         assert_eq!(response["headers"]["Cache-Control"], "no-store");
+        // Invalid transport responses contain no form and may stay no-referrer.
+        assert_eq!(response["headers"]["Referrer-Policy"], "no-referrer");
         assert!(!response.to_string().contains(HOSTILE_TOKEN));
     }
     assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);

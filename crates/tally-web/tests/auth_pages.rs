@@ -14,6 +14,8 @@ fn login_form_posts_email_without_exposing_admin_configuration() {
     assert!(html.contains(r#"autocomplete="email""#));
     assert!(html.contains(r#"maxlength="254""#));
     assert!(html.contains(r#"required"#));
+    // Native same-origin form POSTs need an Origin header; do not leak URL tokens.
+    assert!(html.contains(r#"name="referrer" content="strict-origin""#));
     assert!(!html.contains("@example.com"));
 }
 
@@ -37,6 +39,8 @@ fn magic_link_get_requires_explicit_post_before_redeeming() {
     assert!(html.contains(r#"type="hidden""#));
     assert!(html.contains(r#"name="token""#));
     assert!(html.contains(&format!(r#"value="{token}""#)));
+    // Browser POST redemption needs a genuine Origin; referrer must omit the token query.
+    assert!(html.contains(r#"name="referrer" content="strict-origin""#));
     assert!(!html.contains("<script"));
     assert!(!html.contains("autofocus"));
     assert!(!html.contains("window.location"));

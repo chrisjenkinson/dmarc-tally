@@ -326,11 +326,13 @@ async fn all_responses_prevent_caching_and_restrict_form_actions() {
     let f = Fixture::default();
     for req in [
         Request::new("GET", "/auth/login"),
+        Request::new("GET", "/auth/confirm"),
         Request::new("GET", "/"),
         Request::new("GET", "/not-found"),
     ] {
         let response = f.request(req, NOW).await;
         assert_eq!(response.header("Cache-Control"), Some("no-store"));
+        assert_eq!(response.header("Referrer-Policy"), Some("strict-origin"));
         assert!(response
             .header("Content-Security-Policy")
             .unwrap()
