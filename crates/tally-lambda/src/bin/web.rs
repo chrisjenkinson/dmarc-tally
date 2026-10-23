@@ -11,8 +11,8 @@ use lambda_runtime::{service_fn, Error, LambdaEvent};
 use serde_json::Value;
 use tally_aws::{
     auth_store::DynamoAuthenticationStore,
-    dynamo_repository::DynamoReportRepository,
     dns::{inspect_dns, DnsState},
+    dynamo_repository::DynamoReportRepository,
     entropy::OsTokenSource,
     ses_email::{SesEmailSender, SignInOrigin},
     ses_identity::{IdentityEvidence, SesIdentityReader},
@@ -74,9 +74,14 @@ impl SetupInspector for SesSetupInspector {
         let region = std::env::var("AWS_REGION").unwrap_or_default();
         let dns_checks = inspect_dns(
             self.receiving_address.as_deref(),
-            self.domains.domains().iter().map(|domain| domain.as_str().to_owned()).collect(),
+            self.domains
+                .domains()
+                .iter()
+                .map(|domain| domain.as_str().to_owned())
+                .collect(),
             &region,
-        ).await;
+        )
+        .await;
         let processing = self.evidence.inspect(&self.intake_bucket).await;
         let (processing_state, processing_detail) = match processing {
             ProcessingEvidence::Recent => (
