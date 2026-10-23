@@ -33,8 +33,6 @@ STACKS = {
     "edge": "web-http-edge.yaml",
     "receiving": "ses-receiving.yaml",
 }
-SUFFIXES = {key: key for key in STACKS}
-
 
 class InstallError(Exception):
     """Intentionally contains no email, token, AWS response or config content."""
@@ -268,7 +266,7 @@ def verify_account(cfg: dict) -> None:
 
 def stack_name(cfg: dict, component: str) -> str:
     require(component in STACKS, "stack component")
-    return cfg["stack_prefix"] + "-" + SUFFIXES[component]
+    return cfg["stack_prefix"] + "-" + component
 
 
 def read_stack(cfg: dict, component: str, optional: bool = False) -> dict | None:
@@ -339,7 +337,9 @@ def dependencies(component: str) -> tuple[str, ...]:
 def verified_object(cfg: dict, bucket: str, entry: dict) -> None:
     info, _ = aws_run(cfg, "s3api", "head-object", "--bucket", bucket,
                       "--key", entry["key"], "--checksum-mode", "ENABLED")
-    if info.get("Metadata", {}).get("sha256") != entry["sha256"]:
+    if (info.get("Metadata", {}).get("sha256") != entry["sha256"]
+            or info.get("ChecksumSHA256") !=
+            base64.b64encode(bytes.fromhex(entry["sha256"])).decode("ascii")):
         raise InstallError("Uploaded Lambda release checksum does not match local manifest.")
 
 
@@ -393,6 +393,9 @@ def check_changes(changes: list) -> None:
             raise InstallError("CloudFormation change would remove/import a resource.")
         if action == "Modify" and change.get("Replacement") != "False":
             raise InstallError("CloudFormation change might replace an existing resource.")
+        if (action == "Modify" and change.get("ResourceType")
+                in ("AWS::S3::Bucket", "AWS::DynamoDB::Table")):
+            raise InstallError("Changes to durable data resources need a separate manual review.")
 
 
 def changes_digest(changes: list) -> str:

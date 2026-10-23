@@ -27,6 +27,22 @@ def configured():
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_initializer_creates_private_ignored_config_without_overwriting(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory:
+            private = Path(directory) / ".local"
+            config_path = private / "production.json"
+            with patch.object(install, "LOCAL", private), patch.object(install, "CONFIG", config_path):
+                install.init()
+                self.assertEqual(json.loads(config_path.read_text())["_note"].startswith("COPY"), True)
+                self.assertEqual(os.stat(config_path).st_mode & 0o777, 0o600)
+                with self.assertRaises(install.InstallError):
+                    install.init()
+                self.assertEqual(config_path.read_bytes(), (private / "production.json").read_bytes())
+
     def test_public_example_is_intentionally_not_deployable(self):
         example = json.loads((ROOT / "config/production.example.json").read_text())
         with self.assertRaises(install.InstallError):
@@ -101,6 +117,7 @@ class ConfigurationTests(unittest.TestCase):
             {"Action": "Modify", "LogicalResourceId": "Intake", "ResourceType": "AWS::S3::Bucket", "Replacement": "Conditional"},
             {"Action": "Modify", "LogicalResourceId": "Auth", "ResourceType": "AWS::DynamoDB::Table", "Replacement": "True"},
             {"Action": "Import", "LogicalResourceId": "X", "ResourceType": "AWS::S3::Bucket"},
+            {"Action": "Modify", "LogicalResourceId": "Reports", "ResourceType": "AWS::DynamoDB::Table", "Replacement": "False"},
         ]:
             with self.subTest(risky=risky), self.assertRaises(install.InstallError):
                 install.check_changes([{"ResourceChange": risky}])
