@@ -29,6 +29,18 @@ Parameters:
     Type: String
     MinLength: 6
     Description: Configured DMARC report mailbox; not proof of SES readiness.
+  ReceiptRuleSetName:
+    Type: String
+    MinLength: 1
+    Description: Name of the SES receipt rule set expected to be active.
+  ReceiptRuleName:
+    Type: String
+    MinLength: 3
+    Description: Name of the expected DMARC receiving rule.
+  IntakeBucketName:
+    Type: String
+    MinLength: 3
+    Description: Existing production ingestion S3 bucket receiving raw email.
   SenderEmail:
     Type: String
     MinLength: 6
@@ -135,6 +147,14 @@ Resources:
                   - !Sub
                     - 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${ReceivingIdentityDomain}'
                     - ReceivingIdentityDomain: !Select [1, !Split ['@', !Ref ReceivingAddress]]
+              - Sid: ReadActiveSesReceiptRules
+                Effect: Allow
+                Action: ses:DescribeActiveReceiptRuleSet
+                # This API has no resource-level authorization support.
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: !Ref 'AWS::Region'
               - Sid: WriteOnlyPrivateWebLogs
                 Effect: Allow
                 Action:
@@ -174,6 +194,9 @@ Resources:
           SES_FROM_EMAIL: !Ref SenderEmail
           SES_SENDER_IDENTITY: !Ref VerifiedSenderIdentity
           RECEIVING_ADDRESS: !Ref ReceivingAddress
+          SES_RECEIPT_RULE_SET: !Ref ReceiptRuleSetName
+          SES_RECEIPT_RULE_NAME: !Ref ReceiptRuleName
+          INTAKE_BUCKET: !Ref IntakeBucketName
           PUBLIC_ORIGIN: !Ref PublicOrigin
       Tags:
         - Key: Project

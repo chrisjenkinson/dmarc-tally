@@ -15,6 +15,7 @@ use tally_aws::{
     entropy::OsTokenSource,
     ses_email::{SesEmailSender, SignInOrigin},
     ses_identity::{IdentityEvidence, SesIdentityReader},
+    ses_receiving::{ReceiptEvidence, SesReceiptReader},
 };
 use tally_core::{
     authentication::{AdminEmail, Authentication},
@@ -43,6 +44,10 @@ struct SesSetupInspector {
     receiving_address: Option<String>,
     sender_identity: String,
     identities: SesIdentityReader,
+    receipts: SesReceiptReader,
+    receiving_rule_set: String,
+    receiving_rule_name: String,
+    intake_bucket: String,
     domains: DomainSet,
 }
 
@@ -63,6 +68,32 @@ impl SetupInspector for SesSetupInspector {
             None => None,
         };
         let sending = self.identities.inspect(&self.sender_identity, true).await;
+        let receipt = match self.receiving_address.as_deref() {
+            Some(address) if AdminEmail::parse(address).is_ok() => {
+                self.receipts
+                    .inspect(
+                        &self.receiving_rule_set,
+                        &self.receiving_rule_name,
+                        address,
+                        &self.intake_bucket,
+                    )
+                    .await
+            }
+            _ => ReceiptEvidence::ActionRequired(
+                "Configure a valid receiving address before checking the SES rule.",
+            ),
+        };
+        let (receipt_state, receipt_detail) = match receipt {
+            ReceiptEvidence::Ready => (
+                CheckState::Ready,
+                "The active SES rule matches this recipient and writes to the expected S3 intake prefix. Rule ordering, role permissions and actual delivery are not proven.",
+            ),
+            ReceiptEvidence::ActionRequired(detail) => (CheckState::ActionRequired, detail),
+            ReceiptEvidence::UnableToCheck => (
+                CheckState::UnableToCheck,
+                "Unable to inspect the active SES receipt rule set. Check permissions, region and SES availability.",
+            ),
+        };
         let (receiving_state, receiving_detail) = match receiving {
             Some(IdentityEvidence::Verified) => (
                 CheckState::Ready,
@@ -101,8 +132,8 @@ impl SetupInspector for SesSetupInspector {
             checks: vec![
                 SetupCheck {
                     title: "SES receiving rule and S3 destination",
-                    state: CheckState::NotVerified,
-                    detail: "Active SES rule and S3 destination have not been inspected.".into(),
+                    state: receipt_state,
+                    detail: receipt_detail.into(),
                 },
                 SetupCheck {
                     title: "SES receiving identity",
@@ -152,6 +183,9 @@ async fn main() -> Result<(), Error> {
     let administrator = AdminEmail::parse(&required("ADMIN_EMAIL")?)?;
     let sender = AdminEmail::parse(&required("SES_FROM_EMAIL")?)?;
     let sender_identity = required("SES_SENDER_IDENTITY")?;
+    let receiving_rule_set = required("SES_RECEIPT_RULE_SET")?;
+    let receiving_rule_name = required("SES_RECEIPT_RULE_NAME")?;
+    let intake_bucket = required("INTAKE_BUCKET")?;
     let configured_origin = required("PUBLIC_ORIGIN")?;
     let site = SiteOrigin::parse(&configured_origin)?;
     let email_origin = SignInOrigin::parse(&configured_origin)?;
@@ -161,12 +195,17 @@ async fn main() -> Result<(), Error> {
     let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
     let ses = aws_sdk_sesv2::Client::new(&config);
+    let ses_receiving = aws_sdk_ses::Client::new(&config);
     let app = App {
         administrator: administrator.clone(),
         setup: SesSetupInspector {
             receiving_address: std::env::var("RECEIVING_ADDRESS").ok(),
             sender_identity,
             identities: SesIdentityReader::new(ses.clone()),
+            receipts: SesReceiptReader::new(ses_receiving),
+            receiving_rule_set,
+            receiving_rule_name,
+            intake_bucket,
             domains: domains.clone(),
         },
         domains,
