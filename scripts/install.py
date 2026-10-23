@@ -759,8 +759,7 @@ def preflight_tools() -> list[tuple[str, str, str]]:
                 timeout=8, check=False,
             )
             cli_v2 = (aws_version.returncode == 0 and
-                      bool(re.search(r"\\baws-cli/2\\.", aws_version.stdout +
-                                     " " + aws_version.stderr)))
+                      "aws-cli/2." in (aws_version.stdout + " " + aws_version.stderr))
         except (OSError, subprocess.TimeoutExpired):
             cli_v2 = False
         if not cli_v2:
