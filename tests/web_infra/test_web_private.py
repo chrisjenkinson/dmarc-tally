@@ -69,10 +69,14 @@ class PrivateWebFoundationContract(unittest.TestCase):
             self.assertIn(expected, role)
         for forbidden in (
             "dynamodb:Scan", "dynamodb:*", "ses:*",
-            "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+            "s3:PutObject", "s3:DeleteObject",
             "logs:CreateLogGroup", "Action: '*'",
         ):
             self.assertNotIn(forbidden, role)
+        self.assertIn("Sid: ReadOnlyCaptureEvidence", role)
+        self.assertIn("s3:GetObject", role)
+        self.assertIn("setup/last-captured.json", role)
+        self.assertNotIn("/incoming/*", role)
         # Only this SES read operation needs a wildcard resource; it is
         # constrained to the deployed AWS region and grants no mutation.
         self.assertEqual(role.count("Resource: '*'"), 1)

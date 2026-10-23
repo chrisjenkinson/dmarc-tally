@@ -7,7 +7,10 @@
 use aws_config::BehaviorVersion;
 use lambda_runtime::{service_fn, Error, LambdaEvent};
 use serde_json::{json, Value};
-use tally_aws::{dynamo_repository::DynamoReportRepository, s3::AwsS3EmailStore};
+use tally_aws::{
+    dynamo_repository::DynamoReportRepository, s3::AwsS3EmailStore,
+    setup_evidence::ProcessingEvidenceStore,
+};
 use tally_core::{identity::DomainSet, ingest::IngestLimits};
 use tally_lambda::{
     ingestion::{ingest_s3_object, ProcessingOutcome, RetainedInput},
@@ -20,6 +23,7 @@ struct Handler {
     domains: DomainSet,
     s3: AwsS3EmailStore,
     reports: DynamoReportRepository,
+    evidence: ProcessingEvidenceStore,
 }
 
 async fn process_s3_event(event: LambdaEvent<Value>, handler: Handler) -> Result<Value, Error> {
@@ -44,6 +48,10 @@ async fn process_s3_event(event: LambdaEvent<Value>, handler: Handler) -> Result
 
         match outcome {
             ProcessingOutcome::Captured(result) => {
+                // Report persistence and S3 capture tagging succeeded. Keep
+                // only a tiny, non-identifying processing-evidence marker.
+                // A failure is retryable: the ingestion workflow is idempotent.
+                handler.evidence.record_success(&handler.bucket).await?;
                 captured += 1;
                 new_reports += result.newly_completed;
                 existing_reports += result.previously_completed;
@@ -95,6 +103,7 @@ async fn main() -> Result<(), Error> {
         bucket,
         domains,
         s3: AwsS3EmailStore::new(aws_sdk_s3::Client::new(&config)),
+        evidence: ProcessingEvidenceStore::new(aws_sdk_s3::Client::new(&config)),
         reports: DynamoReportRepository::new(aws_sdk_dynamodb::Client::new(&config), table),
     };
 

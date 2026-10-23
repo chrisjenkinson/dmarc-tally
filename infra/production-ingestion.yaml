@@ -221,6 +221,10 @@ Resources:
                   - s3:PutObjectTagging
                   - s3:PutObjectVersionTagging
                 Resource: !Sub '${IntakeBucket.Arn}/incoming/*'
+              - Sid: WriteOnlyCaptureEvidence
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub '${IntakeBucket.Arn}/setup/last-captured.json'
               - Sid: ReadAndWriteOnlyProductionTable
                 Effect: Allow
                 Action:

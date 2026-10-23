@@ -84,6 +84,8 @@ class ProductionIngestionContract(unittest.TestCase):
             "s3:GetObject",
             "s3:GetObjectTagging",
             "s3:PutObjectTagging",
+            "Sid: WriteOnlyCaptureEvidence",
+            "Resource: !Sub '${IntakeBucket.Arn}/setup/last-captured.json'",
             "dynamodb:GetItem",
             "dynamodb:PutItem",
             "dynamodb:UpdateItem",
