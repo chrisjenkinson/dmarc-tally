@@ -131,7 +131,7 @@ mod tests {
             ProcessingEvidence::Old
         );
         assert_eq!(
-            classify(br#"{"version":1,"processed_at":200}"#, 100),
+            classify(br#"{"version":1,"processed_at":500}"#, 100),
             ProcessingEvidence::UnableToCheck
         );
         assert_eq!(
