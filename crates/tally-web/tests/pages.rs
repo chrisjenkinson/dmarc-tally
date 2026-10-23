@@ -5,8 +5,9 @@ use tally_core::{
     xml::parse_dmarc_xml,
 };
 use tally_web::pages::{
-    render_report_detail, render_report_page, ReportDetailViewModel, ReportViewModel,
+    render_report_detail, render_report_page, RecentReport, ReportDetailViewModel, ReportViewModel,
 };
+use tally_core::identity::ReportReference;
 
 fn view() -> ReportViewModel {
     ReportViewModel {
@@ -95,4 +96,23 @@ fn original_link_only_shown_when_original_is_available() {
     assert!(page.contains("View original email"));
     let other = render_report_detail(&detail(false));
     assert!(!other.contains("View original email"));
+}
+
+#[test]
+fn recent_links_are_escaped_and_only_show_bounded_navigation() {
+    let mut view = view();
+    view.summary.reports = 1;
+    let mut report = detail(false).report;
+    report.identity.organisation = "<img src=x onerror=alert(1)>".into();
+    view.recent_reports.push(RecentReport {
+        reference: ReportReference::from_identity(&report.identity),
+        organisation: report.identity.organisation,
+        messages: 5,
+    });
+    let page = render_report_page(&view);
+    assert!(page.contains("Recent reports"));
+    assert!(page.contains("up to 20 reports"));
+    assert!(page.contains("href=\"/reports/"));
+    assert!(page.contains("&lt;img src=x onerror=alert(1)&gt;"));
+    assert!(!page.contains("<img src=x"));
 }
