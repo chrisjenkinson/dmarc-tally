@@ -752,6 +752,21 @@ def preflight_tools() -> list[tuple[str, str, str]]:
             name, state,
             "Available." if state == "READY" else
             f"Install {name} for the current source-build installation method."))
+    if shutil.which("aws"):
+        try:
+            aws_version = subprocess.run(
+                ["aws", "--version"], capture_output=True, text=True,
+                timeout=8, check=False,
+            )
+            cli_v2 = (aws_version.returncode == 0 and
+                      bool(re.search(r"\\baws-cli/2\\.", aws_version.stdout +
+                                     " " + aws_version.stderr)))
+        except (OSError, subprocess.TimeoutExpired):
+            cli_v2 = False
+        if not cli_v2:
+            checks.append(preflight_result(
+                "AWS CLI version", "ACTION",
+                "Install AWS CLI v2, which is required by this installer."))
     if shutil.which("cargo"):
         try:
             result = subprocess.run(
