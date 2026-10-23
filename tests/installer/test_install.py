@@ -138,17 +138,33 @@ class ConfigurationTests(unittest.TestCase):
     def test_preflight_tools_are_read_only_and_do_not_need_live_aws(self):
         from unittest.mock import patch, Mock
 
+        def tool_version(command, **_kwargs):
+            return Mock(returncode=0, stdout=(
+                "aws-cli/2.38.0 Python/3.13" if command[0] == "aws"
+                else "cargo-lambda 1"))
         with (patch.object(install.shutil, "which", side_effect=lambda name:
                     "/usr/bin/" + name if name in {"aws", "git", "cargo"} else None),
-              patch.object(install.subprocess, "run",
-                           return_value=Mock(returncode=0, stdout="cargo-lambda 1")),
+              patch.object(install.subprocess, "run", side_effect=tool_version),
               patch.object(install, "aws_run", side_effect=AssertionError("no AWS needed"))):
             rows = install.preflight_tools()
         states = {name: state for name, state, _ in rows}
         self.assertEqual(states["AWS CLI"], "READY")
+        self.assertNotIn("AWS CLI version", states)
         self.assertEqual(states["Rust/Cargo"], "READY")
         self.assertEqual(states["Zig"], "ACTION")
         self.assertEqual(states["cargo-lambda"], "READY")
+
+
+    def test_preflight_rejects_aws_cli_v1_without_running_aws(self):
+        from unittest.mock import patch, Mock
+
+        with (patch.object(install.shutil, "which", side_effect=lambda name:
+                    "/usr/bin/" + name if name == "aws" else None),
+              patch.object(install.subprocess, "run",
+                           return_value=Mock(returncode=0, stdout="aws-cli/1.45.0")),
+              patch.object(install, "aws_run", side_effect=AssertionError("no AWS API"))):
+            states = {name: state for name, state, _ in install.preflight_tools()}
+        self.assertEqual(states["AWS CLI version"], "ACTION")
 
     def test_preflight_allows_disabled_not_yet_deployed_rule_but_checks_login(self):
         from contextlib import redirect_stdout
