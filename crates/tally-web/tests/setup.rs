@@ -85,6 +85,7 @@ fn setup_link_is_not_an_automatic_aws_probe_on_report_render() {
         configured_domains: vec![DomainName::parse("example.com").unwrap()],
         days: 30,
         summary: Summary::default(),
+        recent_reports: vec![],
     });
     assert!(page.contains("href=\"/setup\""));
     assert!(page.contains("No DMARC reports"));

@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use tally_core::{
-    identity::{DomainName, DomainSet, ReportIdentity, StoredReport},
+    identity::{DomainName, DomainSet, ReportIdentity, ReportReference, StoredReport},
     model::{DateRange, ParseLimits},
     ports::{
         Cursor, InMemoryReportRepository, PersistOutcome, ReportPage, ReportRepository, StoreError,
@@ -148,6 +148,14 @@ impl ReportRepository for CursorLoopRepository {
             reports: vec![],
             next_cursor: Some(Cursor("same-value".into())),
         })
+    }
+
+
+    async fn get_report_by_reference(
+        &self,
+        _: &ReportReference,
+    ) -> Result<Option<StoredReport>, StoreError> {
+        unreachable!("overview never loads individual report references")
     }
 
     async fn get_report(

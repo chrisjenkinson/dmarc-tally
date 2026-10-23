@@ -17,6 +17,7 @@ fn view() -> ReportViewModel {
         ],
         days: 30,
         summary: Summary::default(),
+        recent_reports: vec![],
     }
 }
 

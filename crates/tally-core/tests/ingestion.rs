@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD, Engine};
-use tally_core::identity::{DomainName, ReportIdentity};
+use tally_core::identity::{DomainName, ReportIdentity, ReportReference};
 use tally_core::identity::{DomainSet, StoredReport};
 use tally_core::ingest::{import_email, IngestLimits, RetainedReason};
 use tally_core::model::{DateRange, ParseLimits};
@@ -125,6 +125,14 @@ impl ReportRepository for FailedStorage {
     ) -> Result<ReportPage, StoreError> {
         Err(StoreError::Unavailable("simulated backend outage".into()))
     }
+
+    async fn get_report_by_reference(
+        &self,
+        _: &ReportReference,
+    ) -> Result<Option<StoredReport>, StoreError> {
+        Err(StoreError::Unavailable("simulated backend outage".into()))
+    }
+
     async fn get_report(&self, _: &ReportIdentity) -> Result<Option<StoredReport>, StoreError> {
         Err(StoreError::Unavailable("simulated backend outage".into()))
     }
