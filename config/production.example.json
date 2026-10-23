@@ -1,0 +1,21 @@
+{
+  "_note": "COPY to .local/production.json and replace every placeholder. Never commit the local copy.",
+  "aws": {
+    "account_id": "000000000000",
+    "profile": "CHANGE_ME_AWS_PROFILE",
+    "region": "ap-southeast-2"
+  },
+  "stack_prefix": "dmarc-tally-prod",
+  "monitored_domains": [
+    "example.invalid"
+  ],
+  "email": {
+    "administrator": "admin@example.invalid",
+    "alerts": "alerts@example.invalid",
+    "sender": "login@example.invalid",
+    "sender_identity": "example.invalid",
+    "receiving": "reports@dmarc.example.invalid",
+    "receipt_rule_set": "CHANGE_ME_EXISTING_SES_RULE_SET",
+    "receipt_rule_name": "dmarc-tally-reports"
+  }
+}
