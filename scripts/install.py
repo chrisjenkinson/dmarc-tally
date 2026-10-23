@@ -285,6 +285,9 @@ def read_stack(cfg: dict, component: str, optional: bool = False) -> dict | None
     stacks = result.get("Stacks") or []
     if len(stacks) != 1 or stacks[0].get("StackName") != stack_name(cfg, component):
         raise InstallError("Unexpected CloudFormation stack result: " + component)
+    if optional and stacks[0]["StackStatus"] == "REVIEW_IN_PROGRESS":
+        # A not-yet-executed CREATE change set has no provisioned resources.
+        return None
     if stacks[0]["StackStatus"] not in ("CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"):
         raise InstallError("Stack not in a deployable state: " + component)
     return stacks[0]
