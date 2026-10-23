@@ -177,7 +177,8 @@ pub async fn load_overview(
                 recent_reports.push(RecentReport {
                     reference: ReportReference::from_identity(&report.identity),
                     organisation: report.identity.organisation.clone(),
-                    messages: report.report.records.iter().map(|record| record.count).sum(),
+                    messages: report.report.records.iter()
+                        .fold(0_u64, |total, record| total.saturating_add(record.count)),
                 });
             }
             // Bound list memory while preserving all reports for aggregate totals.
