@@ -55,7 +55,9 @@ fn assess(
     intake_bucket: &str,
 ) -> ReceiptEvidence {
     if active_set.is_none() {
-        return ReceiptEvidence::ActionRequired("No SES receipt rule set is active in this region.");
+        return ReceiptEvidence::ActionRequired(
+            "No SES receipt rule set is active in this region.",
+        );
     }
     if active_set != Some(expected_set) {
         return ReceiptEvidence::ActionRequired(
@@ -68,14 +70,11 @@ fn assess(
         );
     };
     if !rule.enabled() {
-        return ReceiptEvidence::ActionRequired(
-            "The intended SES receipt rule is disabled.",
-        );
+        return ReceiptEvidence::ActionRequired("The intended SES receipt rule is disabled.");
     }
     // Domain-wide or catch-all rules would accept more mail than the
     // installer intends; an empty recipients list matches every address.
-    if rule.recipients().len() != 1
-        || !rule.recipients()[0].eq_ignore_ascii_case(receiving_address)
+    if rule.recipients().len() != 1 || rule.recipients()[0] != receiving_address
     {
         return ReceiptEvidence::ActionRequired(
             "The receipt rule does not specify exactly the configured receiving address.",
@@ -92,9 +91,7 @@ fn assess(
         );
     }
     let Some(s3) = rule.actions()[0].s3_action() else {
-        return ReceiptEvidence::ActionRequired(
-            "The receipt rule has no S3 delivery action.",
-        );
+        return ReceiptEvidence::ActionRequired("The receipt rule has no S3 delivery action.");
     };
     if s3.bucket_name() != intake_bucket || s3.object_key_prefix() != Some("incoming/") {
         return ReceiptEvidence::ActionRequired(
@@ -155,22 +152,53 @@ mod tests {
     #[test]
     fn only_expected_active_rule_and_s3_action_are_ready() {
         assert_eq!(check(Some("production"), &[rule()]), ReceiptEvidence::Ready);
-        assert!(matches!(check(None, &[rule()]), ReceiptEvidence::ActionRequired(_)));
-        assert!(matches!(check(Some("staging"), &[rule()]), ReceiptEvidence::ActionRequired(_)));
-        assert!(matches!(check(Some("production"), &[]), ReceiptEvidence::ActionRequired(_)));
+        assert!(matches!(
+            check(None, &[rule()]),
+            ReceiptEvidence::ActionRequired(_)
+        ));
+        assert!(matches!(
+            check(Some("staging"), &[rule()]),
+            ReceiptEvidence::ActionRequired(_)
+        ));
+        assert!(matches!(
+            check(Some("production"), &[]),
+            ReceiptEvidence::ActionRequired(_)
+        ));
     }
 
     #[test]
     fn disabled_or_overbroad_rule_requires_action() {
-        let disabled = ReceiptRule::builder().name("dmarc-tally-reports").enabled(false).build().unwrap();
-        assert!(matches!(check(Some("production"), &[disabled]), ReceiptEvidence::ActionRequired(_)));
+        let disabled = ReceiptRule::builder()
+            .name("dmarc-tally-reports")
+            .enabled(false)
+            .build()
+            .unwrap();
+        assert!(matches!(
+            check(Some("production"), &[disabled]),
+            ReceiptEvidence::ActionRequired(_)
+        ));
         let catchall = ReceiptRule::builder()
             .name("dmarc-tally-reports")
             .enabled(true)
             .scan_enabled(true)
-            .actions(ReceiptAction::builder().s3_action(S3Action::builder().bucket_name("intake-bucket").object_key_prefix("incoming/").iam_role_arn("role").build().unwrap()).build())
-            .build().unwrap();
-        assert!(matches!(check(Some("production"), &[catchall]), ReceiptEvidence::ActionRequired(_)));
+            .actions(
+                ReceiptAction::builder()
+                    .s3_action(
+                        S3Action::builder()
+                            .bucket_name("intake-bucket")
+                            .object_key_prefix("incoming/")
+                            .iam_role_arn("role")
+                            .build()
+                            .unwrap(),
+                    )
+                    .build(),
+            )
+            .build()
+            .unwrap();
+        assert!(matches!(
+            check(Some("production"), &[catchall]),
+            ReceiptEvidence::ActionRequired(_)
+        ));
     }
 
     #[test]
@@ -180,16 +208,47 @@ mod tests {
             .enabled(true)
             .scan_enabled(true)
             .recipients("reports@dmarc.example.net")
-            .actions(ReceiptAction::builder().s3_action(S3Action::builder().bucket_name("other-bucket").object_key_prefix("incoming/").iam_role_arn("role").build().unwrap()).build())
-            .build().unwrap();
-        assert!(matches!(check(Some("production"), &[wrong]), ReceiptEvidence::ActionRequired(_)));
+            .actions(
+                ReceiptAction::builder()
+                    .s3_action(
+                        S3Action::builder()
+                            .bucket_name("other-bucket")
+                            .object_key_prefix("incoming/")
+                            .iam_role_arn("role")
+                            .build()
+                            .unwrap(),
+                    )
+                    .build(),
+            )
+            .build()
+            .unwrap();
+        assert!(matches!(
+            check(Some("production"), &[wrong]),
+            ReceiptEvidence::ActionRequired(_)
+        ));
         let encrypted = ReceiptRule::builder()
             .name("dmarc-tally-reports")
             .enabled(true)
             .scan_enabled(true)
             .recipients("reports@dmarc.example.net")
-            .actions(ReceiptAction::builder().s3_action(S3Action::builder().bucket_name("intake-bucket").object_key_prefix("incoming/").iam_role_arn("role").kms_key_arn("kms-key").build().unwrap()).build())
-            .build().unwrap();
-        assert!(matches!(check(Some("production"), &[encrypted]), ReceiptEvidence::ActionRequired(_)));
+            .actions(
+                ReceiptAction::builder()
+                    .s3_action(
+                        S3Action::builder()
+                            .bucket_name("intake-bucket")
+                            .object_key_prefix("incoming/")
+                            .iam_role_arn("role")
+                            .kms_key_arn("kms-key")
+                            .build()
+                            .unwrap(),
+                    )
+                    .build(),
+            )
+            .build()
+            .unwrap();
+        assert!(matches!(
+            check(Some("production"), &[encrypted]),
+            ReceiptEvidence::ActionRequired(_)
+        ));
     }
 }

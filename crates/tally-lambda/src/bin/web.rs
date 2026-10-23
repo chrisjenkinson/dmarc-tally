@@ -70,12 +70,14 @@ impl SetupInspector for SesSetupInspector {
         let sending = self.identities.inspect(&self.sender_identity, true).await;
         let receipt = match self.receiving_address.as_deref() {
             Some(address) if AdminEmail::parse(address).is_ok() => {
-                self.receipts.inspect(
-                    &self.receiving_rule_set,
-                    &self.receiving_rule_name,
-                    address,
-                    &self.intake_bucket,
-                ).await
+                self.receipts
+                    .inspect(
+                        &self.receiving_rule_set,
+                        &self.receiving_rule_name,
+                        address,
+                        &self.intake_bucket,
+                    )
+                    .await
             }
             _ => ReceiptEvidence::ActionRequired(
                 "Configure a valid receiving address before checking the SES rule.",
