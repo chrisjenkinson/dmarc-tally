@@ -1,0 +1,27 @@
+name: Local installer checks
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/install.py'
+      - 'config/production.example.json'
+      - 'tests/installer/**'
+      - '.github/workflows/installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check installer syntax and public config contract without AWS
+        run: |
+          python3 -m py_compile scripts/install.py
+          python3 -m unittest discover -s tests/installer -p 'test_*.py' -v
+          git check-ignore -q .local/production.json
