@@ -106,6 +106,29 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(ses["IntakeBucketName"], "private-intake")
         self.assertEqual(ses["ReceivingAddress"], "aggregate@dmarc.fake.tld")
 
+    def test_receiving_create_is_disabled_and_update_preserves_existing_state(self):
+        params = {"ReceiptRuleName": "dmarc-tally-reports", "EnableReceiving": "false"}
+        create = install.change_set_parameters("receiving", params, "CREATE")
+        update = install.change_set_parameters("receiving", params, "UPDATE")
+        self.assertIn({"ParameterKey": "EnableReceiving", "ParameterValue": "false"}, create)
+        self.assertIn({"ParameterKey": "EnableReceiving", "UsePreviousValue": True}, update)
+        self.assertFalse(any("ParameterValue" in entry and
+                             entry["ParameterKey"] == "EnableReceiving" for entry in update))
+        self.assertIn({"ParameterKey": "ReceiptRuleName", "ParameterValue": "dmarc-tally-reports"},
+                      update)
+        self.assertEqual(
+            install.change_set_parameters("ingestion", {"CodeKey": "x"}, "UPDATE"),
+            [{"ParameterKey": "CodeKey", "ParameterValue": "x"}],
+        )
+        with self.assertRaises(install.InstallError):
+            install.change_set_parameters(
+                "receiving", {"EnableReceiving": "true"}, "CREATE",
+            )
+        with self.assertRaises(install.InstallError):
+            install.change_set_parameters(
+                "receiving", {"EnableReceiving": "true"}, "UPDATE",
+            )
+
     def test_unsafe_cloudformation_operations_must_fail_closed(self):
         safe = [
             {"ResourceChange": {"Action": "Add", "LogicalResourceId": "SafeLog", "ResourceType": "AWS::Logs::LogGroup"}},
