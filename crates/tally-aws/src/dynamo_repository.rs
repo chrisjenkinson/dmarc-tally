@@ -296,8 +296,13 @@ impl ReportRepository for DynamoReportRepository {
         // One exact, strongly consistent metadata lookup using the existing
         // (domain, period end, digest) key layout. Never scan for a digest.
         let partition = format!("DOMAIN#{}", reference.domain.as_str());
-        let key = format!("END#{:020}#REPORT#{}#META", reference.period_end, reference.digest);
-        let result = self.client.get_item()
+        let key = format!(
+            "END#{:020}#REPORT#{}#META",
+            reference.period_end, reference.digest
+        );
+        let result = self
+            .client
+            .get_item()
             .table_name(&self.table)
             .key("PK", Value::S(partition))
             .key("SK", Value::S(key))
@@ -312,8 +317,8 @@ impl ReportRepository for DynamoReportRepository {
             return Ok(None);
         }
         let payload = attr(item, "Data")?;
-        let identity = metadata_identity(payload)
-            .map_err(|err| corrupt("Decode report reference", err))?;
+        let identity =
+            metadata_identity(payload).map_err(|err| corrupt("Decode report reference", err))?;
         if !reference.matches(&identity) {
             return Err(StoreError::Corrupt("Report reference mismatch".into()));
         }
@@ -321,7 +326,9 @@ impl ReportRepository for DynamoReportRepository {
         let report = decode_report(payload, &records)
             .map_err(|err| corrupt("Read referenced report", err))?;
         if !reference.matches(&report.identity) {
-            return Err(StoreError::Corrupt("Decoded report reference mismatch".into()));
+            return Err(StoreError::Corrupt(
+                "Decoded report reference mismatch".into(),
+            ));
         }
         Ok(Some(report))
     }

@@ -177,13 +177,18 @@ pub async fn load_overview(
                 recent_reports.push(RecentReport {
                     reference: ReportReference::from_identity(&report.identity),
                     organisation: report.identity.organisation.clone(),
-                    messages: report.report.records.iter()
+                    messages: report
+                        .report
+                        .records
+                        .iter()
                         .fold(0_u64, |total, record| total.saturating_add(record.count)),
                 });
             }
             // Bound list memory while preserving all reports for aggregate totals.
             recent_reports.sort_by(|a, b| {
-                b.reference.period_end.cmp(&a.reference.period_end)
+                b.reference
+                    .period_end
+                    .cmp(&a.reference.period_end)
                     .then_with(|| a.reference.domain.cmp(&b.reference.domain))
                     .then_with(|| a.reference.digest.cmp(&b.reference.digest))
             });

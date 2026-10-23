@@ -383,12 +383,13 @@ pub async fn handle(
                 return Response::message(404, "Not found.");
             }
             match reports.get_report_by_reference(&reference).await {
-                Ok(Some(report)) if reference.matches(&report.identity) => {
-                    Response::html(200, render_report_detail(&ReportDetailViewModel {
+                Ok(Some(report)) if reference.matches(&report.identity) => Response::html(
+                    200,
+                    render_report_detail(&ReportDetailViewModel {
                         report,
                         original_available: false,
-                    }))
-                }
+                    }),
+                ),
                 Ok(None) => Response::message(404, "Not found."),
                 Ok(Some(_)) | Err(_) => {
                     Response::message(503, "Report data temporarily unavailable.")

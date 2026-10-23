@@ -127,7 +127,9 @@ impl ReportReference {
             || end.len() != 20
             || !end.bytes().all(|v| v.is_ascii_digit())
             || digest.len() != 64
-            || !digest.bytes().all(|v| v.is_ascii_digit() || (b'a'..=b'f').contains(&v))
+            || !digest
+                .bytes()
+                .all(|v| v.is_ascii_digit() || (b'a'..=b'f').contains(&v))
         {
             return None;
         }

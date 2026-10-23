@@ -1,3 +1,4 @@
+use tally_core::identity::ReportReference;
 use tally_core::{
     identity::{DomainName, StoredReport},
     model::ParseLimits,
@@ -7,7 +8,6 @@ use tally_core::{
 use tally_web::pages::{
     render_report_detail, render_report_page, RecentReport, ReportDetailViewModel, ReportViewModel,
 };
-use tally_core::identity::ReportReference;
 
 fn view() -> ReportViewModel {
     ReportViewModel {

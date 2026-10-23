@@ -11,8 +11,8 @@ use tally_core::{
     identity::{DomainName, DomainSet, ReportIdentity, ReportReference, StoredReport},
     model::{DateRange, ParseLimits},
     ports::InMemoryReportRepository,
-    xml::parse_dmarc_xml,
     ports::{Cursor, PersistOutcome, ReportPage, ReportRepository, StoreError},
+    xml::parse_dmarc_xml,
 };
 use tally_web::{
     http::{handle, Request, SiteOrigin},
@@ -422,7 +422,8 @@ async fn authenticated_direct_report_lookup_renders_records_without_original_mim
     let parsed = parse_dmarc_xml(
         include_bytes!("../../../tests/fixtures/xml/legacy.xml"),
         &ParseLimits::default(),
-    ).unwrap();
+    )
+    .unwrap();
     let report = StoredReport::from_parsed(parsed, "test-parser");
     let reference = ReportReference::from_identity(&report.identity);
     let repo = InMemoryReportRepository::default();
@@ -432,9 +433,15 @@ async fn authenticated_direct_report_lookup_renders_records_without_original_mim
     let mut request = Request::new("GET", &path);
     request.cookie = Some(credential);
     let page = handle(
-        &request, &fixture.auth(), &repo, &fixture.domains,
-        &fixture.site, &fixture.setup, NOW,
-    ).await;
+        &request,
+        &fixture.auth(),
+        &repo,
+        &fixture.domains,
+        &fixture.site,
+        &fixture.setup,
+        NOW,
+    )
+    .await;
     assert_eq!(page.status, 200);
     assert!(page.body.contains("Report details"));
     assert!(page.body.contains("192.0.2.10"));
@@ -444,18 +451,34 @@ async fn authenticated_direct_report_lookup_renders_records_without_original_mim
     assert_eq!(page.header("Cache-Control"), Some("no-store"));
 
     let anonymous = handle(
-        &Request::new("GET", &path), &fixture.auth(), &repo,
-        &fixture.domains, &fixture.site, &fixture.setup, NOW,
-    ).await;
+        &Request::new("GET", &path),
+        &fixture.auth(),
+        &repo,
+        &fixture.domains,
+        &fixture.site,
+        &fixture.setup,
+        NOW,
+    )
+    .await;
     assert_eq!(anonymous.status, 303);
     assert_eq!(anonymous.header("Location"), Some("/auth/login"));
 
     let mut expired = Request::new("GET", &path);
     expired.cookie = Some(credential);
-    assert_eq!(handle(
-        &expired, &fixture.auth(), &repo, &fixture.domains,
-        &fixture.site, &fixture.setup, NOW + SESSION_TTL_SECONDS,
-    ).await.status, 303);
+    assert_eq!(
+        handle(
+            &expired,
+            &fixture.auth(),
+            &repo,
+            &fixture.domains,
+            &fixture.site,
+            &fixture.setup,
+            NOW + SESSION_TTL_SECONDS,
+        )
+        .await
+        .status,
+        303
+    );
 }
 
 #[tokio::test]
