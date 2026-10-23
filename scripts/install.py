@@ -244,9 +244,13 @@ def aws_run(cfg: dict, *args: str, allow_error: bool = False) -> tuple[dict, str
         *args, "--output", "json",
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=180)
-    except (OSError, subprocess.TimeoutExpired) as error:
+        is_wait = len(args) >= 2 and args[:2] == ("cloudformation", "wait")
+        result = subprocess.run(command, capture_output=True, text=True,
+                                timeout=1800 if is_wait else 180)
+    except OSError as error:
         raise InstallError("AWS CLI is required and must be configured locally.") from error
+    except subprocess.TimeoutExpired as error:
+        raise InstallError("AWS operation timed out; inspect stack status before retrying.") from error
     if result.returncode:
         if allow_error:
             return {}, result.stderr

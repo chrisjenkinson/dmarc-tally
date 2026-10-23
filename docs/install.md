@@ -71,8 +71,10 @@ The command first confirms that the configured AWS **account ID matches**
 the active AWS CLI profile. It creates a CloudFormation change set only:
 **no stack resources are created or updated by plan**. It prints generic
 actions, resource types and logical IDs, not domain/email parameters or
-raw AWS responses. Any resource deletion, replacement or conditional
-replacement is blocked from the generic installer. The change-set ARN,
+raw AWS responses. Resource deletions, replacements, conditional
+replacements and **any update to a durable S3 bucket or DynamoDB table**
+are blocked from this ordinary upgrade workflow. Such changes require a
+separate reviewed recovery/migration procedure. The change-set ARN,
 configuration/template hashes and selected release are recorded in the
 ignored .local/plans/ directory.
 
