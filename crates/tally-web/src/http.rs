@@ -344,7 +344,7 @@ pub async fn handle(
             if !request.query.is_empty() {
                 return Response::message(400, "Invalid request.");
             }
-            Response::html(200, render_setup_page(&setup.inspect().await))
+            Response::html(200, render_setup_page(&setup.inspect().await, now))
         }
 
         ("GET", "/") => {

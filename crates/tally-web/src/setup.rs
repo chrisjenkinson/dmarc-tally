@@ -49,8 +49,32 @@ pub trait SetupInspector: Send + Sync {
     async fn inspect(&self) -> SetupSnapshot;
 }
 
-pub fn render_setup_page(snapshot: &SetupSnapshot) -> String {
+/// The host supplies its trusted request time; never use a browser timestamp.
+pub fn render_setup_page(snapshot: &SetupSnapshot, checked_at: i64) -> String {
     let mut html = start_page("Setup status");
+    if let Ok(at) = time::OffsetDateTime::from_unix_timestamp(checked_at) {
+        html.push_str(&format!(
+            "<p class=\"muted\">Checked on {:04}-{:02}-{:02} at {:02}:{:02} UTC. Results are not continuously monitored.</p>",
+            at.year(), u8::from(at.month()), at.day(), at.hour(), at.minute(),
+        ));
+    }
+    let needs_action = snapshot
+        .checks
+        .iter()
+        .filter(|c| c.state == CheckState::ActionRequired)
+        .count();
+    let unknown = snapshot
+        .checks
+        .iter()
+        .filter(|c| matches!(c.state, CheckState::NotVerified | CheckState::UnableToCheck))
+        .count();
+    if needs_action > 0 {
+        html.push_str(&format!("<p role=\"status\"><strong>{needs_action} setup checks require action.</strong> Review the details below.</p>"));
+    }
+    if unknown > 0 {
+        html.push_str(&format!("<p>{unknown} checks remain unverified or unavailable. This does not mean incoming mail is broken.</p>"));
+    }
+
     html.push_str(
         "<h2>Setup status</h2><p>These checks help identify outstanding configuration. \
          AWS configuration does not prove successful email delivery.</p>\
@@ -81,7 +105,7 @@ pub fn render_setup_page(snapshot: &SetupSnapshot) -> String {
     }
     html.push_str(
         "</ul><p class=\"muted\">Results are checked when this page loads. \
-         Refresh to inspect again. DNS and end-to-end delivery may require separate tests.</p>",
+         Refresh to inspect again. An observed AWS configuration is not proof of a successful end-to-end test.</p>",
     );
     finish_page(html)
 }
