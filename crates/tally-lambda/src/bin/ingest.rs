@@ -8,8 +8,7 @@ use aws_config::BehaviorVersion;
 use lambda_runtime::{service_fn, Error, LambdaEvent};
 use serde_json::{json, Value};
 use tally_aws::{
-    dynamo_repository::DynamoReportRepository,
-    s3::AwsS3EmailStore,
+    dynamo_repository::DynamoReportRepository, s3::AwsS3EmailStore,
     setup_evidence::ProcessingEvidenceStore,
 };
 use tally_core::{identity::DomainSet, ingest::IngestLimits};

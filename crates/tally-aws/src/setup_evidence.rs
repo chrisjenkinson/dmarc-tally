@@ -80,7 +80,13 @@ impl ProcessingEvidenceStore {
     }
 
     pub async fn inspect(&self, bucket: &str) -> ProcessingEvidence {
-        let result = self.client.get_object().bucket(bucket).key(MARKER).send().await;
+        let result = self
+            .client
+            .get_object()
+            .bucket(bucket)
+            .key(MARKER)
+            .send()
+            .await;
         let output = match result {
             Ok(output) => output,
             Err(error) => {
@@ -93,7 +99,10 @@ impl ProcessingEvidenceStore {
                 return ProcessingEvidence::UnableToCheck;
             }
         };
-        if output.content_length().is_some_and(|length| length > MAX_BYTES as i64) {
+        if output
+            .content_length()
+            .is_some_and(|length| length > MAX_BYTES as i64)
+        {
             return ProcessingEvidence::UnableToCheck;
         }
         let mut reader = output.body.into_async_read().take(MAX_BYTES as u64 + 1);
@@ -113,10 +122,22 @@ mod tests {
     use super::{classify, ProcessingEvidence};
     #[test]
     fn real_recent_marker_is_needed_to_show_ready() {
-        assert_eq!(classify(br#"{"version":1,"processed_at":100}"#, 101), ProcessingEvidence::Recent);
-        assert_eq!(classify(br#"{"version":1,"processed_at":100}"#, 800000), ProcessingEvidence::Old);
-        assert_eq!(classify(br#"{"version":1,"processed_at":200}"#, 100), ProcessingEvidence::UnableToCheck);
-        assert_eq!(classify(br#"{"version":2,"processed_at":100}"#, 101), ProcessingEvidence::UnableToCheck);
+        assert_eq!(
+            classify(br#"{"version":1,"processed_at":100}"#, 101),
+            ProcessingEvidence::Recent
+        );
+        assert_eq!(
+            classify(br#"{"version":1,"processed_at":100}"#, 800000),
+            ProcessingEvidence::Old
+        );
+        assert_eq!(
+            classify(br#"{"version":1,"processed_at":200}"#, 100),
+            ProcessingEvidence::UnableToCheck
+        );
+        assert_eq!(
+            classify(br#"{"version":2,"processed_at":100}"#, 101),
+            ProcessingEvidence::UnableToCheck
+        );
         assert_eq!(classify(br#"{}"#, 101), ProcessingEvidence::UnableToCheck);
     }
 }
