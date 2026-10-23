@@ -76,7 +76,10 @@ requiring another link.
 - Use CSRF protection/Origin validation on authenticated state-changing POST
   requests (including logout), and avoid accepting credentials through GET.
 - Use `Cache-Control: no-store` on auth and private pages, and
-  `Referrer-Policy: no-referrer` on all pages containing sign-in tokens.
+  `Referrer-Policy: strict-origin` in both HTTP responses and rendered HTML.
+  This excludes paths and token queries from `Referer` while preserving the
+  HTTPS origin on native form POSTs. `no-referrer` makes their `Origin` header
+  `null`, which must remain forbidden by the CSRF checks.
   No external fonts, scripts or tracking pixels on the link landing page.
   Exclude auth queries and cookies from access/error logs.
 - Validate the trusted public HTTPS origin at configuration time, using
@@ -90,13 +93,13 @@ requiring another link.
 - Use the same application behaviour for any CLI administration function,
   rather than creating a separate authentication state machine.
 
-The portable `tally-web::http` handler is now implemented but **not
-deployed**. It accepts already-decoded request fields; verifies configured
-HTTPS origin for POST; enforces session checks **before any report query**;
+The portable `tally-web::http` handler accepts already-decoded request
+fields; verifies configured HTTPS origin for POST; enforces session checks
+**before any report query**;
 shows emailed GET links without consuming them; redeems only on an explicit
 POST; and issues or clears Secure, HttpOnly, SameSite=Lax, Path=/ session
-cookies. All responses set `Cache-Control: no-store`, a no-referrer policy
-and a restrictive content-security policy.
+cookies. All responses set `Cache-Control: no-store`, an origin-only
+referrer policy and a restrictive content-security policy.
 
 The login request POST has a generic response regardless of account
 recognition or mail-delivery errors; this does not eliminate possible timing

@@ -53,9 +53,12 @@ report requests never invoke `ReportRepository`. There is no test-mode
 session bypass or anonymous reporting path.
 
 All application responses include `Cache-Control: no-store`,
-`Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff` and a
-restrictive content-security policy. The event decoder returns generic
-HTTP 400 errors for invalid transports without echoing credentials.
+`Referrer-Policy: strict-origin`, `X-Content-Type-Options: nosniff` and a
+restrictive content-security policy. The rendered HTML uses the same
+referrer policy: native HTTPS form POSTs retain their origin, but no
+referrer contains URL paths or token queries. The event decoder returns
+generic HTTP 400 errors with `no-referrer` for invalid transports without
+echoing credentials.
 
 ## Compiled executable
 
