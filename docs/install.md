@@ -79,8 +79,11 @@ Preflight also checks tools for the **currently supported source-build**
 installation: Python 3.11+, Git, AWS CLI, Cargo, Zig and cargo-lambda.
 It prints `READY`, `ACTION`, `LATER` or `UNKNOWN` with a concrete
 next step but never outputs AWS errors or configured email addresses.
-`ACTION` or `UNKNOWN` returns a non-zero exit code; `LATER` is expected
-for a rule not yet provisioned/activated and does not block first login.
+`ACTION` or `UNKNOWN` for **login prerequisites** returns a non-zero
+exit code. Receiving-configuration diagnostics are advisory for first login:
+an unprovisioned, inactive or conflicting receiving rule must be reviewed
+**before receiving activation** but need not prevent signing in to the
+dashboard. `LATER` is expected for a rule not yet provisioned/activated.
 If credentials point to the wrong account, SES probes are skipped.
 SES sandbox/identity checks establish *configuration*, not actual delivery:
 confirm a real login message before enabling receiving.
