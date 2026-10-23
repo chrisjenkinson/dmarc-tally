@@ -130,6 +130,7 @@ pub fn render_report_page(view: &ReportViewModel) -> String {
 
     if view.summary.reports == 0 {
         html.push_str("<p>No DMARC reports for this selection yet. Receiving a report may take time after DNS is configured.</p>");
+        html.push_str("<p><strong>Setup not confirmed from this view.</strong> <a href=\\"/setup\\">Check receiving configuration</a> before assuming reports will arrive.</p>");
     } else {
         html.push_str(
             "<section><h2>Reporting organisations</h2><div class=\"table-scroll\"><table>",

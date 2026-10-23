@@ -16,7 +16,7 @@ The page distinguishes four states:
 - **Unable to check**: the inspection could not complete; errors never mean
   Ready and must not expose raw AWS responses.
 
-The v1 page shows the configured receiving mailbox, monitored domains and
+The setup page shows a trusted UTC inspection timestamp, counts of checks requiring action or further evidence, and the configured receiving mailbox, monitored domains and
 setup steps. On an authenticated visit to `/setup`, the host performs two
 read-only SES v2 `GetEmailIdentity` calls for the configured sender identity
 and the *exact* receiving address domain. These checks report verified

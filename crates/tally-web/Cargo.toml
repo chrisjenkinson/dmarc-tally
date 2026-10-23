@@ -10,6 +10,7 @@ tally-core = { path = "../tally-core" }
 async-trait = "0.1"
 form_urlencoded = "1"
 url = "2"
+time = "0.3"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }

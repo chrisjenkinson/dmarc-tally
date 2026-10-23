@@ -32,7 +32,7 @@ fn snapshot() -> SetupSnapshot {
 
 #[test]
 fn setup_page_shows_configured_address_monitored_domains_and_distinct_states() {
-    let html = render_setup_page(&snapshot());
+    let html = render_setup_page(&snapshot(), 1_800_000_000);
     assert!(html.contains("Setup status"));
     assert!(html.contains("aggregate@dmarc.example.com"));
     assert!(html.contains("example.com"));
@@ -48,6 +48,9 @@ fn setup_page_shows_configured_address_monitored_domains_and_distinct_states() {
     assert!(html.contains("Receiving MX / DMARC DNS"));
     assert!(html.contains("Inbound delivery"));
     assert!(html.contains("Refresh checks"));
+    assert!(html.contains("UTC"));
+    assert!(html.contains("1 setup checks require action"));
+    assert!(html.contains("2 checks remain unverified or unavailable"));
     assert!(html.contains("AWS configuration does not prove successful email delivery"));
     assert!(!html.contains("All checks passed"));
 }
@@ -57,7 +60,7 @@ fn page_never_renders_untrusted_status_details_as_markup() {
     let mut snapshot = snapshot();
     snapshot.receiving_address = Some("<svg/onload=alert(1)>@example.com".into());
     snapshot.checks[0].detail = "<script>exfiltrate()</script>".into();
-    let html = render_setup_page(&snapshot);
+    let html = render_setup_page(&snapshot, 1_800_000_000);
     assert!(!html.contains("<script>exfiltrate()"));
     assert!(!html.contains("<svg/onload"));
     assert!(html.contains("&lt;script&gt;exfiltrate()&lt;/script&gt;"));
@@ -68,7 +71,7 @@ fn page_never_renders_untrusted_status_details_as_markup() {
 fn missing_configuration_must_not_claim_readiness() {
     let mut snapshot = snapshot();
     snapshot.receiving_address = None;
-    let html = render_setup_page(&snapshot);
+    let html = render_setup_page(&snapshot, 1_800_000_000);
     assert!(html.contains("Receiving address not configured"));
     assert!(!html.contains("aggregate@dmarc.example.com"));
 }
