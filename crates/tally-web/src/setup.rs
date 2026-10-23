@@ -54,14 +54,14 @@ pub fn render_setup_page(snapshot: &SetupSnapshot, checked_at: i64) -> String {
     let mut html = start_page("Setup status");
     if let Ok(at) = time::OffsetDateTime::from_unix_timestamp(checked_at) {
         html.push_str(&format!(
-            "<p class=\\"muted\\">Checked on {:04}-{:02}-{:02} at {:02}:{:02} UTC. Results are not continuously monitored.</p>",
+            "<p class=\"muted\">Checked on {:04}-{:02}-{:02} at {:02}:{:02} UTC. Results are not continuously monitored.</p>",
             at.year(), u8::from(at.month()), at.day(), at.hour(), at.minute(),
         ));
     }
     let needs_action = snapshot.checks.iter().filter(|c| c.state == CheckState::ActionRequired).count();
     let unknown = snapshot.checks.iter().filter(|c| matches!(c.state, CheckState::NotVerified | CheckState::UnableToCheck)).count();
     if needs_action > 0 {
-        html.push_str(&format!("<p role=\\"status\\"><strong>{needs_action} setup checks require action.</strong> Review the details below.</p>"));
+        html.push_str(&format!("<p role=\"status\"><strong>{needs_action} setup checks require action.</strong> Review the details below.</p>"));
     }
     if unknown > 0 {
         html.push_str(&format!("<p>{unknown} checks remain unverified or unavailable. This does not mean incoming mail is broken.</p>"));
