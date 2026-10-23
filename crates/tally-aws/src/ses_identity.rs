@@ -87,9 +87,6 @@ mod tests {
                 IdentityEvidence::NotVerified
             );
         }
-        assert_eq!(
-            classify(None, true, false),
-            IdentityEvidence::UnableToCheck
-        );
+        assert_eq!(classify(None, true, false), IdentityEvidence::UnableToCheck);
     }
 }
