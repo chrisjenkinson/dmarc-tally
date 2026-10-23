@@ -74,8 +74,7 @@ fn assess(
     }
     // Domain-wide or catch-all rules would accept more mail than the
     // installer intends; an empty recipients list matches every address.
-    if rule.recipients().len() != 1 || rule.recipients()[0] != receiving_address
-    {
+    if rule.recipients().len() != 1 || rule.recipients()[0] != receiving_address {
         return ReceiptEvidence::ActionRequired(
             "The receipt rule does not specify exactly the configured receiving address.",
         );
