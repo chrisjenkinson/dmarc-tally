@@ -81,7 +81,9 @@ impl ReportRepository for SpyReports {
     ) -> Result<Option<StoredReport>, StoreError> {
         self.reads.fetch_add(1, Ordering::SeqCst);
         if self.fail_lookup.load(Ordering::SeqCst) {
-            Err(StoreError::Unavailable("internal AWS detail must not leak".into()))
+            Err(StoreError::Unavailable(
+                "internal AWS detail must not leak".into(),
+            ))
         } else {
             Ok(None)
         }
