@@ -14,6 +14,7 @@ use tally_aws::{
     dynamo_repository::DynamoReportRepository,
     entropy::OsTokenSource,
     ses_email::{SesEmailSender, SignInOrigin},
+    ses_identity::{IdentityEvidence, SesIdentityReader},
 };
 use tally_core::{
     authentication::{AdminEmail, Authentication},
@@ -34,20 +35,66 @@ struct App {
     reports: DynamoReportRepository,
     email: SesEmailSender,
     entropy: OsTokenSource,
-    setup: PendingSetupInspector,
+    setup: SesSetupInspector,
 }
 
 #[derive(Clone)]
-struct PendingSetupInspector {
+struct SesSetupInspector {
     receiving_address: Option<String>,
+    sender_identity: String,
+    identities: SesIdentityReader,
     domains: DomainSet,
 }
 
 #[async_trait::async_trait]
-impl SetupInspector for PendingSetupInspector {
+impl SetupInspector for SesSetupInspector {
     async fn inspect(&self) -> SetupSnapshot {
-        // An AWS SES read-only inspector will replace the "Not verified"
-        // checks. Never infer readiness from installation configuration.
+        // These on-demand SES v2 lookups establish identity status only.
+        // Neither a verified identity nor a configured address proves delivery.
+        let receiving_domain = self.receiving_address.as_deref().and_then(|address| {
+            if AdminEmail::parse(address).is_ok() {
+                address.split_once('@').map(|(_, domain)| domain)
+            } else {
+                None
+            }
+        });
+        let receiving = match receiving_domain {
+            Some(domain) => Some(self.identities.inspect(domain, false).await),
+            None => None,
+        };
+        let sending = self.identities.inspect(&self.sender_identity, true).await;
+        let (receiving_state, receiving_detail) = match receiving {
+            Some(IdentityEvidence::Verified) => (
+                CheckState::Ready,
+                "The receiving domain identity is verified in SES in this region. Mail routing and receipt rules still need checking.",
+            ),
+            Some(IdentityEvidence::NotVerified) => (
+                CheckState::ActionRequired,
+                "This exact receiving domain identity is not verified in SES. Check its verification and any applicable parent-domain identity.",
+            ),
+            Some(IdentityEvidence::UnableToCheck) => (
+                CheckState::UnableToCheck,
+                "SES could not verify the receiving domain status. Check read permissions, identity existence and regional configuration.",
+            ),
+            None => (
+                CheckState::NotVerified,
+                "Configure a valid receiving address before checking its SES identity.",
+            ),
+        };
+        let (sending_state, sending_detail) = match sending {
+            IdentityEvidence::Verified => (
+                CheckState::Ready,
+                "The configured sending identity is verified and enabled for sending in this SES region.",
+            ),
+            IdentityEvidence::NotVerified => (
+                CheckState::ActionRequired,
+                "The configured sending identity is not verified or enabled for sending in this SES region.",
+            ),
+            IdentityEvidence::UnableToCheck => (
+                CheckState::UnableToCheck,
+                "SES could not verify the sending identity status. Check read permissions, identity existence and regional configuration.",
+            ),
+        };
         SetupSnapshot {
             receiving_address: self.receiving_address.clone(),
             monitored_domains: self.domains.domains().iter().cloned().collect(),
@@ -58,9 +105,14 @@ impl SetupInspector for PendingSetupInspector {
                     detail: "Active SES rule and S3 destination have not been inspected.".into(),
                 },
                 SetupCheck {
-                    title: "SES sending and receiving identities",
-                    state: CheckState::NotVerified,
-                    detail: "SES identity verification has not been inspected.".into(),
+                    title: "SES receiving identity",
+                    state: receiving_state,
+                    detail: receiving_detail.into(),
+                },
+                SetupCheck {
+                    title: "SES sending identity",
+                    state: sending_state,
+                    detail: sending_detail.into(),
                 },
                 SetupCheck {
                     title: "MX and DMARC DNS",
@@ -99,6 +151,7 @@ async fn main() -> Result<(), Error> {
     }
     let administrator = AdminEmail::parse(&required("ADMIN_EMAIL")?)?;
     let sender = AdminEmail::parse(&required("SES_FROM_EMAIL")?)?;
+    let sender_identity = required("SES_SENDER_IDENTITY")?;
     let configured_origin = required("PUBLIC_ORIGIN")?;
     let site = SiteOrigin::parse(&configured_origin)?;
     let email_origin = SignInOrigin::parse(&configured_origin)?;
@@ -110,8 +163,10 @@ async fn main() -> Result<(), Error> {
     let ses = aws_sdk_sesv2::Client::new(&config);
     let app = App {
         administrator: administrator.clone(),
-        setup: PendingSetupInspector {
+        setup: SesSetupInspector {
             receiving_address: std::env::var("RECEIVING_ADDRESS").ok(),
+            sender_identity,
+            identities: SesIdentityReader::new(ses.clone()),
             domains: domains.clone(),
         },
         domains,
