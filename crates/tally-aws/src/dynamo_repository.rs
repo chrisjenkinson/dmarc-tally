@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::{types::AttributeValue as Value, Client};
 use tally_core::{
-    identity::{DomainName, ReportIdentity, StoredRecord, StoredReport},
+    identity::{DomainName, ReportIdentity, ReportReference, StoredRecord, StoredReport},
     model::DateRange,
     ports::{Cursor, PersistOutcome, ReportPage, ReportRepository, StoreError},
 };
@@ -285,6 +285,50 @@ impl ReportRepository for DynamoReportRepository {
             .map_err(|e| corrupt("Read complete report", e))?;
         if &report.identity != identity {
             return Err(StoreError::Corrupt("Report identity mismatch".into()));
+        }
+        Ok(Some(report))
+    }
+
+    async fn get_report_by_reference(
+        &self,
+        reference: &ReportReference,
+    ) -> Result<Option<StoredReport>, StoreError> {
+        // One exact, strongly consistent metadata lookup using the existing
+        // (domain, period end, digest) key layout. Never scan for a digest.
+        let partition = format!("DOMAIN#{}", reference.domain.as_str());
+        let key = format!(
+            "END#{:020}#REPORT#{}#META",
+            reference.period_end, reference.digest
+        );
+        let result = self
+            .client
+            .get_item()
+            .table_name(&self.table)
+            .key("PK", Value::S(partition))
+            .key("SK", Value::S(key))
+            .consistent_read(true)
+            .send()
+            .await
+            .map_err(|err| unavailable("Read report metadata by reference", err))?;
+        let Some(item) = result.item() else {
+            return Ok(None);
+        };
+        if attr(item, "State")? != "COMPLETE" {
+            return Ok(None);
+        }
+        let payload = attr(item, "Data")?;
+        let identity =
+            metadata_identity(payload).map_err(|err| corrupt("Decode report reference", err))?;
+        if !reference.matches(&identity) {
+            return Err(StoreError::Corrupt("Report reference mismatch".into()));
+        }
+        let records = self.read_records(&identity).await?;
+        let report = decode_report(payload, &records)
+            .map_err(|err| corrupt("Read referenced report", err))?;
+        if !reference.matches(&report.identity) {
+            return Err(StoreError::Corrupt(
+                "Decoded report reference mismatch".into(),
+            ));
         }
         Ok(Some(report))
     }

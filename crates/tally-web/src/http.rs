@@ -8,7 +8,7 @@ use std::fmt;
 
 use tally_core::{
     authentication::{Authentication, SESSION_TTL_SECONDS},
-    identity::DomainSet,
+    identity::{DomainSet, ReportReference},
     ports::ReportRepository,
 };
 use url::Url;
@@ -18,7 +18,7 @@ use crate::{
         render_link_confirmation, render_link_invalid, render_sign_in_form,
         render_sign_in_requested,
     },
-    pages::render_report_page,
+    pages::{render_report_detail, render_report_page, ReportDetailViewModel},
     report_queries::{load_overview, OverviewSelection, SelectionError},
     setup::{render_setup_page, SetupInspector},
 };
@@ -367,14 +367,33 @@ pub async fn handle(
             }
         }
 
-        // The report-details and original-email retrieval capability is not
-        // implemented yet. Even so, the credential check is mandatory before
-        // any future implementation is added here.
         ("GET", path) if path.starts_with("/reports/") => {
+            // Authorization must precede even malformed/guessed IDs and every
+            // repository read. No original MIME access from this route.
             if !authorized(request, auth, now).await {
-                Response::redirect("/auth/login")
-            } else {
-                Response::message(404, "Not found.")
+                return Response::redirect("/auth/login");
+            }
+            if !request.query.is_empty() {
+                return Response::message(404, "Not found.");
+            }
+            let Some(reference) = ReportReference::parse_path(path) else {
+                return Response::message(404, "Not found.");
+            };
+            if !domains.contains(&reference.domain) {
+                return Response::message(404, "Not found.");
+            }
+            match reports.get_report_by_reference(&reference).await {
+                Ok(Some(report)) if reference.matches(&report.identity) => Response::html(
+                    200,
+                    render_report_detail(&ReportDetailViewModel {
+                        report,
+                        original_available: false,
+                    }),
+                ),
+                Ok(None) => Response::message(404, "Not found."),
+                Ok(Some(_)) | Err(_) => {
+                    Response::message(503, "Report data temporarily unavailable.")
+                }
             }
         }
 

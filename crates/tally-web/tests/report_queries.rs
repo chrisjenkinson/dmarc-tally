@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use tally_core::{
-    identity::{DomainName, DomainSet, ReportIdentity, StoredReport},
+    identity::{DomainName, DomainSet, ReportIdentity, ReportReference, StoredReport},
     model::{DateRange, ParseLimits},
     ports::{
         Cursor, InMemoryReportRepository, PersistOutcome, ReportPage, ReportRepository, StoreError,
@@ -103,6 +103,11 @@ async fn reports_from_all_domains_are_combined_without_mixing_periods() {
     assert_eq!(view.summary.passed, 11);
     assert_eq!(view.summary.by_reporter["receiver example"].messages, 11);
     assert_eq!(view.configured_domains.len(), 2);
+    assert_eq!(view.recent_reports.len(), 2);
+    assert!(view
+        .recent_reports
+        .iter()
+        .all(|row| row.reference.path().starts_with("/reports/")));
 
     let domain = OverviewSelection::parse("domain=example.com&days=7", &monitored()).unwrap();
     let filtered = load_overview(&repo, &monitored(), &domain, NOW)
@@ -128,6 +133,11 @@ async fn follows_repository_cursors_and_does_not_drop_the_next_page() {
     assert_eq!(view.summary.by_ip["192.0.2.10"].messages, 101);
     assert_eq!(view.summary.by_reporter["receiver example"].messages, 101);
     assert_eq!(view.summary.dispositions["none"], 101);
+    assert_eq!(view.recent_reports.len(), 20);
+    assert!(view
+        .recent_reports
+        .iter()
+        .all(|r| r.reference.domain.as_str() == "example.com"));
 }
 
 struct CursorLoopRepository;
@@ -150,6 +160,13 @@ impl ReportRepository for CursorLoopRepository {
         })
     }
 
+    async fn get_report_by_reference(
+        &self,
+        _: &ReportReference,
+    ) -> Result<Option<StoredReport>, StoreError> {
+        unreachable!("overview never loads individual report references")
+    }
+
     async fn get_report(
         &self,
         _identity: &ReportIdentity,
@@ -163,4 +180,38 @@ async fn detects_broken_repository_pagination_instead_of_looping() {
     let selection = OverviewSelection::parse("", &monitored()).unwrap();
     let result = load_overview(&CursorLoopRepository, &monitored(), &selection, NOW).await;
     assert!(matches!(result, Err(OverviewError::PaginationLoop)));
+}
+
+#[tokio::test]
+async fn recent_links_are_bounded_and_ordered_without_changing_totals() {
+    let repo = InMemoryReportRepository::default();
+    for n in 0..35 {
+        let report = stored(
+            if n % 2 == 0 {
+                "example.com"
+            } else {
+                "example.net"
+            },
+            &format!("serial-{n}"),
+            NOW - (n as i64 + 1) * 86_400,
+            2,
+        );
+        repo.persist_report(&report).await.unwrap();
+    }
+    let view = load_overview(
+        &repo,
+        &monitored(),
+        &OverviewSelection::parse("days=90", &monitored()).unwrap(),
+        NOW,
+    )
+    .await
+    .unwrap();
+    assert_eq!(view.summary.reports, 35);
+    assert_eq!(view.summary.messages, 70);
+    assert_eq!(view.recent_reports.len(), 20);
+    assert!(view
+        .recent_reports
+        .windows(2)
+        .all(|pair| pair[0].reference.period_end >= pair[1].reference.period_end));
+    assert_eq!(view.recent_reports[0].reference.period_end, NOW - 86_400);
 }

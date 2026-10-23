@@ -8,9 +8,11 @@ use tally_core::{
         AdminEmail, AuthError, Authentication, EmailSender, InMemoryAuthenticationStore,
         SecureTokenSource, LOGIN_TTL_SECONDS, SESSION_TTL_SECONDS,
     },
-    identity::{DomainName, DomainSet, ReportIdentity, StoredReport},
-    model::DateRange,
+    identity::{DomainName, DomainSet, ReportIdentity, ReportReference, StoredReport},
+    model::{DateRange, ParseLimits},
+    ports::InMemoryReportRepository,
     ports::{Cursor, PersistOutcome, ReportPage, ReportRepository, StoreError},
+    xml::parse_dmarc_xml,
 };
 use tally_web::{
     http::{handle, Request, SiteOrigin},
@@ -53,6 +55,7 @@ impl SpySender {
 #[derive(Default)]
 struct SpyReports {
     reads: AtomicUsize,
+    fail_lookup: AtomicBool,
 }
 #[async_trait]
 impl ReportRepository for SpyReports {
@@ -71,6 +74,21 @@ impl ReportRepository for SpyReports {
             next_cursor: None,
         })
     }
+
+    async fn get_report_by_reference(
+        &self,
+        _: &ReportReference,
+    ) -> Result<Option<StoredReport>, StoreError> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        if self.fail_lookup.load(Ordering::SeqCst) {
+            Err(StoreError::Unavailable(
+                "internal AWS detail must not leak".into(),
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn get_report(&self, _: &ReportIdentity) -> Result<Option<StoredReport>, StoreError> {
         self.reads.fetch_add(1, Ordering::SeqCst);
         Ok(None)
@@ -399,4 +417,124 @@ async fn all_responses_prevent_caching_and_restrict_form_actions() {
             .unwrap()
             .contains("form-action 'self'"));
     }
+}
+
+#[tokio::test]
+async fn authenticated_direct_report_lookup_renders_records_without_original_mime() {
+    let fixture = Fixture::default();
+    let token = fixture.login().await;
+    let cookie = fixture.redeem(&token, NOW).await;
+    let credential = cookie.split(';').next().unwrap();
+
+    let parsed = parse_dmarc_xml(
+        include_bytes!("../../../tests/fixtures/xml/legacy.xml"),
+        &ParseLimits::default(),
+    )
+    .unwrap();
+    let report = StoredReport::from_parsed(parsed, "test-parser");
+    let reference = ReportReference::from_identity(&report.identity);
+    let repo = InMemoryReportRepository::default();
+    repo.persist_report(&report).await.unwrap();
+
+    let path = reference.path();
+    let mut request = Request::new("GET", &path);
+    request.cookie = Some(credential);
+    let page = handle(
+        &request,
+        &fixture.auth(),
+        &repo,
+        &fixture.domains,
+        &fixture.site,
+        &fixture.setup,
+        NOW,
+    )
+    .await;
+    assert_eq!(page.status, 200);
+    assert!(page.body.contains("Report details"));
+    assert!(page.body.contains("192.0.2.10"));
+    assert!(page.body.contains("DKIM"));
+    assert!(page.body.contains("SPF"));
+    assert!(!page.body.contains("View original email"));
+    assert_eq!(page.header("Cache-Control"), Some("no-store"));
+
+    let anonymous = handle(
+        &Request::new("GET", &path),
+        &fixture.auth(),
+        &repo,
+        &fixture.domains,
+        &fixture.site,
+        &fixture.setup,
+        NOW,
+    )
+    .await;
+    assert_eq!(anonymous.status, 303);
+    assert_eq!(anonymous.header("Location"), Some("/auth/login"));
+
+    let mut expired = Request::new("GET", &path);
+    expired.cookie = Some(credential);
+    assert_eq!(
+        handle(
+            &expired,
+            &fixture.auth(),
+            &repo,
+            &fixture.domains,
+            &fixture.site,
+            &fixture.setup,
+            NOW + SESSION_TTL_SECONDS,
+        )
+        .await
+        .status,
+        303
+    );
+}
+
+#[tokio::test]
+async fn invalid_or_unconfigured_report_links_do_not_read_the_repository() {
+    let fixture = Fixture::default();
+    let token = fixture.login().await;
+    let cookie = fixture.redeem(&token, NOW).await;
+    let credential = cookie.split(';').next().unwrap();
+    let digest = "a".repeat(64);
+    let paths = vec![
+        format!("/reports/other.example/{:020}/{digest}", NOW),
+        format!("/reports/example.com/{:020}/{}", NOW, "Z".repeat(64)),
+        format!("/reports/example.com/{:020}/{}", NOW, "a".repeat(63)),
+        format!("/reports/EXAMPLE.com/{:020}/{digest}", NOW),
+        format!("/reports/example.com/1/{digest}"),
+        format!("/reports/example.com/{:020}/{digest}/original", NOW),
+    ];
+    for path in &paths {
+        let mut request = Request::new("GET", path);
+        request.cookie = Some(credential);
+        assert_eq!(fixture.request(request, NOW).await.status, 404, "{path}");
+    }
+    assert_eq!(fixture.reports.reads.load(Ordering::SeqCst), 0);
+
+    let path = format!("/reports/example.com/{:020}/{digest}", NOW);
+    let mut unknown = Request::new("GET", &path);
+    unknown.cookie = Some(credential);
+    assert_eq!(fixture.request(unknown, NOW).await.status, 404);
+    assert_eq!(fixture.reports.reads.load(Ordering::SeqCst), 1);
+
+    let mut query = Request::new("GET", &path);
+    query.cookie = Some(credential);
+    query.query = "download=1";
+    assert_eq!(fixture.request(query, NOW).await.status, 404);
+    assert_eq!(fixture.reports.reads.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn report_repository_errors_are_503_without_leaking_backend_details() {
+    let fixture = Fixture::default();
+    let token = fixture.login().await;
+    let cookie = fixture.redeem(&token, NOW).await;
+    let credential = cookie.split(';').next().unwrap();
+    fixture.reports.fail_lookup.store(true, Ordering::SeqCst);
+    let path = format!("/reports/example.com/{:020}/{}", NOW, "a".repeat(64));
+    let mut req = Request::new("GET", &path);
+    req.cookie = Some(credential);
+    let page = fixture.request(req, NOW).await;
+    assert_eq!(page.status, 503);
+    assert!(!page.body.contains("internal AWS detail"));
+    assert_eq!(fixture.reports.reads.load(Ordering::SeqCst), 1);
 }

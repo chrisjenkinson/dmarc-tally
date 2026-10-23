@@ -10,7 +10,7 @@ use tally_core::{
         AdminEmail, AuthError, Authentication, EmailSender, InMemoryAuthenticationStore,
         SecureTokenSource,
     },
-    identity::{DomainName, DomainSet, ReportIdentity, StoredReport},
+    identity::{DomainName, DomainSet, ReportIdentity, ReportReference, StoredReport},
     model::DateRange,
     ports::{Cursor, PersistOutcome, ReportPage, ReportRepository, StoreError},
 };
@@ -74,6 +74,15 @@ impl ReportRepository for ReportSpy {
             next_cursor: None,
         })
     }
+
+    async fn get_report_by_reference(
+        &self,
+        _: &ReportReference,
+    ) -> Result<Option<StoredReport>, StoreError> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        Ok(None)
+    }
+
     async fn get_report(&self, _: &ReportIdentity) -> Result<Option<StoredReport>, StoreError> {
         self.reads.fetch_add(1, Ordering::SeqCst);
         Ok(None)
