@@ -10,6 +10,7 @@ use aws_config::BehaviorVersion;
 use lambda_runtime::{service_fn, Error, LambdaEvent};
 use serde_json::Value;
 use tally_aws::{
+    alerts::{AlertInspector, AlertState},
     auth_store::DynamoAuthenticationStore,
     dns::{inspect_dns, DnsState},
     dynamo_repository::DynamoReportRepository,
@@ -51,6 +52,7 @@ struct SesSetupInspector {
     receiving_rule_name: String,
     intake_bucket: String,
     evidence: ProcessingEvidenceStore,
+    alerts: AlertInspector,
     domains: DomainSet,
 }
 
@@ -71,6 +73,7 @@ impl SetupInspector for SesSetupInspector {
             None => None,
         };
         let sending = self.identities.inspect(&self.sender_identity, true).await;
+        let alert_checks = self.alerts.inspect().await;
         let region = std::env::var("AWS_REGION").unwrap_or_default();
         let dns_checks = inspect_dns(
             self.receiving_address.as_deref(),
@@ -187,9 +190,27 @@ impl SetupInspector for SesSetupInspector {
                     detail: "A verified SES-to-S3-to-database test still needs an explicitly sent test email and confirmation of its receipt. Generic processing evidence is insufficient.".into(),
                 },
                 SetupCheck {
-                    title: "Failure notifications",
+                    title: "SNS failure email subscription",
+                    state: match alert_checks.subscription {
+                        AlertState::Ready => CheckState::Ready,
+                        AlertState::ActionRequired => CheckState::ActionRequired,
+                        AlertState::UnableToCheck => CheckState::UnableToCheck,
+                    },
+                    detail: alert_checks.subscription_detail.into(),
+                },
+                SetupCheck {
+                    title: "Failure alarm configuration",
+                    state: match alert_checks.alarms {
+                        AlertState::Ready => CheckState::Ready,
+                        AlertState::ActionRequired => CheckState::ActionRequired,
+                        AlertState::UnableToCheck => CheckState::UnableToCheck,
+                    },
+                    detail: alert_checks.alarms_detail.into(),
+                },
+                SetupCheck {
+                    title: "Alarm notification delivery test",
                     state: CheckState::NotVerified,
-                    detail: "SNS subscription and alarm delivery have not been verified.".into(),
+                    detail: "Alarm actions and a confirmed SNS subscription do not prove email arrived. Exercise an approved alarm test and confirm delivery separately.".into(),
                 },
             ];
         for dns in dns_checks {
@@ -233,6 +254,16 @@ async fn main() -> Result<(), Error> {
     let receiving_rule_set = required("SES_RECEIPT_RULE_SET")?;
     let receiving_rule_name = required("SES_RECEIPT_RULE_NAME")?;
     let intake_bucket = required("INTAKE_BUCKET")?;
+    let alert_topic = required("FAILURE_ALERT_TOPIC_ARN")?;
+    let alert_email = required("FAILURE_NOTIFICATION_EMAIL")?;
+    let alarm_names: Vec<String> = required("FAILURE_ALARM_NAMES")?
+        .split(',')
+        .map(str::trim)
+        .map(str::to_owned)
+        .collect();
+    if alarm_names.len() != 4 || alarm_names.iter().any(String::is_empty) {
+        return Err("Expected four configured failure alarm names".into());
+    }
     let configured_origin = required("PUBLIC_ORIGIN")?;
     let site = SiteOrigin::parse(&configured_origin)?;
     let email_origin = SignInOrigin::parse(&configured_origin)?;
@@ -254,6 +285,13 @@ async fn main() -> Result<(), Error> {
             receiving_rule_name,
             intake_bucket,
             evidence: ProcessingEvidenceStore::new(aws_sdk_s3::Client::new(&config)),
+            alerts: AlertInspector::new(
+                aws_sdk_sns::Client::new(&config),
+                aws_sdk_cloudwatch::Client::new(&config),
+                alert_topic,
+                alert_email,
+                alarm_names,
+            ),
             domains: domains.clone(),
         },
         domains,

@@ -102,6 +102,10 @@ a different existing object and verifies the S3 object's checksum metadata.
 It doesn't need a public GitHub release or a short-lived Actions artifact.
 
 Continue in this order: **ingestion**, **web**, **edge**, then **web again**.
+For upgrades adding alert diagnostics, apply the ingestion stack update first:
+the web installer needs its new `FailureAlarmNames` output to inspect the
+four existing CloudWatch alarms. This does not modify the alarms or subscribe
+an address automatically beyond the existing reviewed stack configuration.
 The first web install uses a reserved, intentionally nonfunctional
 https://bootstrap.invalid origin because the API Gateway URL does not
 exist yet. After the edge is approved and deployed, planning **web again**

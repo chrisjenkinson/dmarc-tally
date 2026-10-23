@@ -119,6 +119,14 @@ class ProductionIngestionContract(unittest.TestCase):
         ):
             alarm = resource(PROD, name)
             self.assertIn("FailureAlertTopic", alarm)
+        self.assertIn("FailureAlarmNames:", PROD)
+        for name in (
+            "!Ref EventBridgeFailureBacklogAlarm",
+            "!Ref LambdaFailureBacklogAlarm",
+            "!Ref EventBridgeDlqDeliveryFailureAlarm",
+            "!Ref LambdaDestinationDeliveryFailureAlarm",
+        ):
+            self.assertIn(name, PROD.split("FailureAlarmNames:", 1)[1])
         subscription = resource(PROD, "FailureEmailSubscription")
         self.assertNotIn("Condition:", subscription)
         self.assertIn("Endpoint: !Ref NotificationEmail", subscription)

@@ -55,6 +55,10 @@ class PrivateWebFoundationContract(unittest.TestCase):
             "Resource: !Sub",
             "ses:SendEmail", "ses:GetEmailIdentity",
             "ses:DescribeActiveReceiptRuleSet",
+            "sns:ListSubscriptionsByTopic",
+            "cloudwatch:DescribeAlarms",
+            "alarm:${IngestionStackName}-*",
+            "Sid: ReadOnlyIngestionAlarms",
             "Sid: ReadActiveSesReceiptRules",
             "Sid: ReadConfiguredSesIdentityStatus",
             "identity/${VerifiedSenderIdentity}",
@@ -117,6 +121,9 @@ class PrivateWebFoundationContract(unittest.TestCase):
             "INTAKE_BUCKET: !Ref IntakeBucketName",
             "SES_RECEIPT_RULE_SET: !Ref ReceiptRuleSetName",
             "SES_RECEIPT_RULE_NAME: !Ref ReceiptRuleName",
+            "FAILURE_ALERT_TOPIC_ARN: !Ref FailureAlertTopicArn",
+            "FAILURE_ALARM_NAMES: !Ref FailureAlarmNames",
+            "FAILURE_NOTIFICATION_EMAIL: !Ref FailureNotificationEmail",
         ):
             self.assertIn(expected, function)
         self.assertNotIn("FunctionUrlConfig", function)

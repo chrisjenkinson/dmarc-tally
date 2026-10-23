@@ -41,6 +41,23 @@ Parameters:
     Type: String
     MinLength: 3
     Description: Existing production ingestion S3 bucket receiving raw email.
+  FailureAlertTopicArn:
+    Type: String
+    MinLength: 16
+    Description: Ingestion stack failure alarm SNS topic ARN.
+  FailureAlarmNames:
+    Type: String
+    MinLength: 3
+    Description: Comma-separated CloudWatch alarm names from the ingestion stack.
+  FailureNotificationEmail:
+    Type: String
+    MinLength: 6
+    NoEcho: true
+    Description: Configured administrator receiving operational SNS alarms.
+  IngestionStackName:
+    Type: String
+    MinLength: 3
+    Description: Existing ingestion stack name for bounded CloudWatch alarm reads.
   SenderEmail:
     Type: String
     MinLength: 6
@@ -155,6 +172,14 @@ Resources:
                 Condition:
                   StringEquals:
                     aws:RequestedRegion: !Ref 'AWS::Region'
+              - Sid: ReadOnlyFailureAlertSubscriptions
+                Effect: Allow
+                Action: sns:ListSubscriptionsByTopic
+                Resource: !Ref FailureAlertTopicArn
+              - Sid: ReadOnlyIngestionAlarms
+                Effect: Allow
+                Action: cloudwatch:DescribeAlarms
+                Resource: !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${IngestionStackName}-*'
               - Sid: ReadOnlyCaptureEvidence
                 Effect: Allow
                 Action: s3:GetObject
@@ -201,6 +226,9 @@ Resources:
           SES_RECEIPT_RULE_SET: !Ref ReceiptRuleSetName
           SES_RECEIPT_RULE_NAME: !Ref ReceiptRuleName
           INTAKE_BUCKET: !Ref IntakeBucketName
+          FAILURE_ALERT_TOPIC_ARN: !Ref FailureAlertTopicArn
+          FAILURE_ALARM_NAMES: !Ref FailureAlarmNames
+          FAILURE_NOTIFICATION_EMAIL: !Ref FailureNotificationEmail
           PUBLIC_ORIGIN: !Ref PublicOrigin
       Tags:
         - Key: Project

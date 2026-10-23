@@ -19,6 +19,8 @@ aws-sdk-dynamodb = "1"
 aws-sdk-s3 = "1"
 aws-sdk-sesv2 = "1"
 aws-sdk-ses = "1"
+aws-sdk-cloudwatch = "1"
+aws-sdk-sns = "1"
 
 [dev-dependencies]
 

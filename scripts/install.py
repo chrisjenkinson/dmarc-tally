@@ -321,6 +321,10 @@ def parameters(component: str, cfg: dict, outputs: dict, release: dict) -> dict:
             "ReceiptRuleSetName": email["receipt_rule_set"],
             "ReceiptRuleName": email["receipt_rule_name"],
             "IntakeBucketName": outputs["ingestion"]["IntakeBucket"],
+            "FailureAlertTopicArn": outputs["ingestion"]["FailureAlertTopicArn"],
+            "FailureAlarmNames": outputs["ingestion"]["FailureAlarmNames"],
+            "FailureNotificationEmail": email["alerts"],
+            "IngestionStackName": stack_name(cfg, "ingestion"),
             "SenderEmail": email["sender"], "VerifiedSenderIdentity": email["sender_identity"],
             "PublicOrigin": outputs.get("edge", {}).get("WebHttpsOrigin", BOOTSTRAP_ORIGIN),
         }
