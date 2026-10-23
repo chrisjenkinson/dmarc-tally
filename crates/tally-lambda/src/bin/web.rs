@@ -20,7 +20,10 @@ use tally_core::{
     identity::DomainSet,
 };
 use tally_lambda::web_event::handle_http_v2;
-use tally_web::http::SiteOrigin;
+use tally_web::{
+    http::SiteOrigin,
+    setup::{CheckState, SetupCheck, SetupInspector, SetupSnapshot},
+};
 
 #[derive(Clone)]
 struct App {
@@ -31,6 +34,52 @@ struct App {
     reports: DynamoReportRepository,
     email: SesEmailSender,
     entropy: OsTokenSource,
+    setup: PendingSetupInspector,
+}
+
+#[derive(Clone)]
+struct PendingSetupInspector {
+    receiving_address: Option<String>,
+    domains: DomainSet,
+}
+
+#[async_trait::async_trait]
+impl SetupInspector for PendingSetupInspector {
+    async fn inspect(&self) -> SetupSnapshot {
+        // An AWS SES read-only inspector will replace the "Not verified"
+        // checks. Never infer readiness from installation configuration.
+        SetupSnapshot {
+            receiving_address: self.receiving_address.clone(),
+            monitored_domains: self.domains.domains().iter().cloned().collect(),
+            checks: vec![
+                SetupCheck {
+                    title: "SES receiving rule and S3 destination",
+                    state: CheckState::NotVerified,
+                    detail: "Active SES rule and S3 destination have not been inspected.".into(),
+                },
+                SetupCheck {
+                    title: "SES sending and receiving identities",
+                    state: CheckState::NotVerified,
+                    detail: "SES identity verification has not been inspected.".into(),
+                },
+                SetupCheck {
+                    title: "MX and DMARC DNS",
+                    state: CheckState::NotVerified,
+                    detail: "Receiving MX, monitored-domain rua and external authorization have not been checked.".into(),
+                },
+                SetupCheck {
+                    title: "End-to-end report delivery",
+                    state: CheckState::NotVerified,
+                    detail: "A successfully received, processed report has not been verified.".into(),
+                },
+                SetupCheck {
+                    title: "Failure notifications",
+                    state: CheckState::NotVerified,
+                    detail: "SNS subscription and alarm delivery have not been verified.".into(),
+                },
+            ],
+        }
+    }
 }
 
 fn required(name: &'static str) -> Result<String, Error> {
@@ -61,6 +110,10 @@ async fn main() -> Result<(), Error> {
     let ses = aws_sdk_sesv2::Client::new(&config);
     let app = App {
         administrator: administrator.clone(),
+        setup: PendingSetupInspector {
+            receiving_address: std::env::var("RECEIVING_ADDRESS").ok(),
+            domains: domains.clone(),
+        },
         domains,
         site,
         auth_store: DynamoAuthenticationStore::new(dynamodb.clone(), auth_table),
@@ -87,6 +140,7 @@ async fn main() -> Result<(), Error> {
                 &app.reports,
                 &app.domains,
                 &app.site,
+                &app.setup,
                 now,
             )
             .await;

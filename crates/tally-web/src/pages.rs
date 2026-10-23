@@ -77,6 +77,7 @@ pub fn render_report_page(view: &ReportViewModel) -> String {
     let mut html = start_page("Overview");
     html.push_str("<h2>Report overview</h2><p>These are messages observed in DMARC reports, not a count of emails sent.</p>");
     html.push_str(r#"<form method="post" action="/auth/logout"><button type="submit">Sign out</button></form>"#);
+    html.push_str(r#"<p><a href="/setup">Review receiving setup and outstanding checks</a></p>"#);
     html.push_str(r#"<form method="get" action="/"><div><label for="domain">Domain</label><select name="domain" id="domain">"#);
     html.push_str(if view.selected_domain.is_none() {
         r#"<option value="all" selected>All domains</option>"#

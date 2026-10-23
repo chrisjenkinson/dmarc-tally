@@ -19,6 +19,7 @@ use crate::{
         render_sign_in_requested,
     },
     pages::render_report_page,
+    setup::{render_setup_page, SetupInspector},
     report_queries::{load_overview, OverviewSelection, SelectionError},
 };
 
@@ -250,6 +251,7 @@ pub async fn handle(
     reports: &dyn ReportRepository,
     domains: &DomainSet,
     site: &SiteOrigin,
+    setup: &dyn SetupInspector,
     now: i64,
 ) -> Response {
     // Only strict canonical route paths are accepted; URL decoding belongs to
@@ -333,6 +335,16 @@ pub async fn handle(
             let mut response = Response::redirect("/auth/login");
             response.headers.push(("Set-Cookie", expired_cookie()));
             response
+        }
+
+        ("GET", "/setup") => {
+            if !authorized(request, auth, now).await {
+                return Response::redirect("/auth/login");
+            }
+            if !request.query.is_empty() {
+                return Response::message(400, "Invalid request.");
+            }
+            Response::html(200, render_setup_page(&setup.inspect().await))
         }
 
         ("GET", "/") => {

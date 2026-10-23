@@ -25,6 +25,10 @@ Parameters:
     MinLength: 6
     NoEcho: true
     Description: Sole administrator; user input cannot change this recipient.
+  ReceivingAddress:
+    Type: String
+    MinLength: 6
+    Description: Configured DMARC report mailbox; not proof of SES readiness.
   SenderEmail:
     Type: String
     MinLength: 6
@@ -160,6 +164,7 @@ Resources:
           MONITORED_DOMAINS: !Ref MonitoredDomains
           ADMIN_EMAIL: !Ref AdministratorEmail
           SES_FROM_EMAIL: !Ref SenderEmail
+          RECEIVING_ADDRESS: !Ref ReceivingAddress
           PUBLIC_ORIGIN: !Ref PublicOrigin
       Tags:
         - Key: Project

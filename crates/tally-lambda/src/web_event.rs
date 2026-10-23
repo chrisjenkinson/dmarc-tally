@@ -8,7 +8,10 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Map, Value};
 use tally_core::{authentication::Authentication, identity::DomainSet, ports::ReportRepository};
-use tally_web::http::{handle, Request, Response, SiteOrigin};
+use tally_web::{
+    http::{handle, Request, Response, SiteOrigin},
+    setup::SetupInspector,
+};
 
 const MAX_PATH_BYTES: usize = 1024;
 const MAX_QUERY_BYTES: usize = 2048;
@@ -188,6 +191,7 @@ pub async fn handle_http_v2(
     reports: &dyn ReportRepository,
     domains: &DomainSet,
     site: &SiteOrigin,
+    setup: &dyn SetupInspector,
     now_epoch_seconds: i64,
 ) -> Value {
     let Ok(input) = decode(event) else {
@@ -202,5 +206,5 @@ pub async fn handle_http_v2(
         cookie: input.cookie.as_deref(),
         body: &input.body,
     };
-    encode_response(handle(&request, auth, reports, domains, site, now_epoch_seconds).await)
+    encode_response(handle(&request, auth, reports, domains, site, setup, now_epoch_seconds).await)
 }
