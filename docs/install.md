@@ -59,6 +59,40 @@ The example configuration intentionally cannot deploy. Store an encrypted
 backup of `.local/production.json`, which is not an AWS credentials file.
 The installer does not print private settings in public CI output.
 
+### Pre-login read-only preflight
+
+Before attempting the first browser login, run:
+
+```sh
+python3 scripts/install.py preflight
+```
+
+This reads the selected AWS account via STS and queries SES in the configured
+region. It checks sending access, configured sending-identity verification,
+whether SES sandbox restrictions require the administrator address/domain to
+be verified, receiving-domain identity and the expected receipt rule set.
+It also identifies an active rule set belonging to another application and
+earlier/broad recipient rules that need manual review. No email is sent,
+receipt rule enabled, rule set activated, DNS changed or stack deployed.
+
+Preflight also checks tools for the **currently supported source-build**
+installation: Python 3.11+, Git, AWS CLI, Cargo, Zig and cargo-lambda.
+It prints `READY`, `ACTION`, `LATER` or `UNKNOWN` with a concrete
+next step but never outputs AWS errors or configured email addresses.
+`ACTION` or `UNKNOWN` returns a non-zero exit code; `LATER` is expected
+for a rule not yet provisioned/activated and does not block first login.
+If credentials point to the wrong account, SES probes are skipped.
+SES sandbox/identity checks establish *configuration*, not actual delivery:
+confirm a real login message before enabling receiving.
+
+The read-only checks require AWS permissions for
+`sts:GetCallerIdentity`, SES v2 `GetAccount` and
+`GetEmailIdentity`, and classic SES
+`DescribeActiveReceiptRuleSet`/`DescribeReceiptRuleSet`.
+Missing permission yields `UNKNOWN`, not a false green status.
+The installer uses bounded AWS CLI calls and does not store another
+readiness database. Repeat preflight after making necessary changes.
+
 After configuration, `status` reads live CloudFormation stack status and
 expected outputs in the configured account. It neither deploys nor enables
 anything, does not require a clean checkout or compiled ZIPs, and never
@@ -78,8 +112,9 @@ delivery: use separate checks and `/setup` once signed in. A suggested
 
 ## 2. Prepare SES sending and review SES receiving
 
-**Before attempting login**, verify the configured sending identity in SES
-in the target region; determine whether the SES account is in the sandbox.
+**Before attempting login**, run `preflight` as above and verify the
+configured sending identity in SES in the target region; determine whether
+the SES account is in the sandbox.
 Sandbox sending can require the **administrator recipient** to be verified
 as well. A verified sending identity alone does not guarantee delivery; a
 controlled sign-in attempt is still required.
