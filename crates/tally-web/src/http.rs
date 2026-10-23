@@ -123,7 +123,8 @@ impl Response {
             headers: vec![
                 ("Content-Type", "text/html; charset=utf-8".into()),
                 ("Cache-Control", "no-store".into()),
-                ("Referrer-Policy", "no-referrer".into()),
+                // Preserve form POST origins without exposing paths or tokens in Referer.
+                ("Referrer-Policy", "strict-origin".into()),
                 ("X-Content-Type-Options", "nosniff".into()),
                 (
                     "Content-Security-Policy",

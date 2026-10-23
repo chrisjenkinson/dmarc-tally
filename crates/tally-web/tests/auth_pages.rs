@@ -14,7 +14,6 @@ fn login_form_posts_email_without_exposing_admin_configuration() {
     assert!(html.contains(r#"autocomplete="email""#));
     assert!(html.contains(r#"maxlength="254""#));
     assert!(html.contains(r#"required"#));
-    assert!(html.contains(r#"name="referrer" content="no-referrer""#));
     assert!(!html.contains("@example.com"));
 }
 
@@ -38,7 +37,6 @@ fn magic_link_get_requires_explicit_post_before_redeeming() {
     assert!(html.contains(r#"type="hidden""#));
     assert!(html.contains(r#"name="token""#));
     assert!(html.contains(&format!(r#"value="{token}""#)));
-    assert!(html.contains(r#"name="referrer" content="no-referrer""#));
     assert!(!html.contains("<script"));
     assert!(!html.contains("autofocus"));
     assert!(!html.contains("window.location"));

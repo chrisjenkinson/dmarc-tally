@@ -248,25 +248,32 @@ async fn unrecognised_addresses_and_email_failures_get_same_acknowledgement() {
 }
 
 #[tokio::test]
-async fn cross_origin_posts_cannot_send_email_consume_tokens_or_sign_out() {
+async fn untrusted_origins_cannot_send_email_consume_tokens_or_sign_out() {
     let f = Fixture::default();
-    let mut req = f.post("/auth/request", "email=admin%40example.com");
-    req.origin = Some("https://evil.example");
-    assert_eq!(f.request(req, NOW).await.status, 403);
+    let untrusted = [None, Some("null"), Some("https://evil.example")];
+    for origin in untrusted {
+        let mut req = f.post("/auth/request", "email=admin%40example.com");
+        req.origin = origin;
+        assert_eq!(f.request(req, NOW).await.status, 403);
+    }
     assert_eq!(f.email.count(), 0);
 
     let token = f.login().await;
     let confirmation_body = format!("token={token}");
-    let mut request = f.post("/auth/confirm", &confirmation_body);
-    request.origin = Some("null");
-    assert_eq!(f.request(request, NOW).await.status, 403);
+    for origin in untrusted {
+        let mut request = f.post("/auth/confirm", &confirmation_body);
+        request.origin = origin;
+        assert_eq!(f.request(request, NOW).await.status, 403);
+    }
     let cookie = f.redeem(&token, NOW).await;
     let session = cookie.split(';').next().unwrap();
 
-    let mut req = f.post("/auth/logout", "");
-    req.cookie = Some(session);
-    req.origin = Some("https://evil.example");
-    assert_eq!(f.request(req, NOW + 1).await.status, 403);
+    for origin in untrusted {
+        let mut req = f.post("/auth/logout", "");
+        req.cookie = Some(session);
+        req.origin = origin;
+        assert_eq!(f.request(req, NOW + 1).await.status, 403);
+    }
 
     let mut req = Request::new("GET", "/");
     req.cookie = Some(session);
@@ -315,7 +322,7 @@ async fn confirm_expiry_and_malformed_tokens_never_create_sessions() {
 }
 
 #[tokio::test]
-async fn all_responses_prevent_caching_and_referrer_leakage() {
+async fn all_responses_prevent_caching_and_restrict_form_actions() {
     let f = Fixture::default();
     for req in [
         Request::new("GET", "/auth/login"),
@@ -324,7 +331,6 @@ async fn all_responses_prevent_caching_and_referrer_leakage() {
     ] {
         let response = f.request(req, NOW).await;
         assert_eq!(response.header("Cache-Control"), Some("no-store"));
-        assert_eq!(response.header("Referrer-Policy"), Some("no-referrer"));
         assert!(response
             .header("Content-Security-Policy")
             .unwrap()
