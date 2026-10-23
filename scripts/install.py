@@ -888,8 +888,9 @@ def preflight_receiving(cfg: dict) -> list[tuple[str, str, str]]:
 
 
 def run_preflight(cfg: dict) -> bool:
-    """Advisory readiness check, never a deployment authorisation."""
+    """Login prerequisites determine exit code; receiving is advisory."""
     checks = preflight_tools()
+    receiving_checks = []
     if not shutil.which("aws"):
         checks.append(preflight_result(
             "AWS account/region", "UNKNOWN",
@@ -964,17 +965,27 @@ def run_preflight(cfg: dict) -> bool:
                     "Confirm whether SES is in sandbox mode and whether the "
                     "administrator recipient needs verification."))
 
-            checks.extend(preflight_receiving(cfg))
+            receiving_checks = preflight_receiving(cfg)
+            checks.extend(receiving_checks)
 
     print("DMARC Tally pre-login preflight (read-only; no email sent)")
     print("Region: " + cfg["aws"]["region"])
     for name, state, action in checks:
         print(f"  [{state}] {name}: {action}")
-    needs_attention = any(state in ("ACTION", "UNKNOWN") for _, state, _ in checks)
-    print("Result: " + ("Action or manual verification required." if needs_attention
-                        else "No detected blockers for the initial login; test real delivery."))
+    login_checks = checks[:-len(receiving_checks)] if receiving_checks else checks
+    login_issue = any(state in ("ACTION", "UNKNOWN") for _, state, _ in login_checks)
+    receiving_issue = any(state in ("ACTION", "UNKNOWN")
+                          for _, state, _ in receiving_checks)
+    print("First login: " + (
+        "Action or manual verification required." if login_issue
+        else "No detected blockers for the initial login; test real delivery."
+    ))
+    print("Receiving: " + (
+        "Manual review required before activation." if receiving_issue
+        else "Follow remaining setup steps before activation/rua changes."
+    ))
     print("Preflight does not modify SES, DNS or AWS, or prove mail delivery.")
-    return not needs_attention
+    return not login_issue
 
 
 def main() -> None:
