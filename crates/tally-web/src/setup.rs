@@ -58,8 +58,16 @@ pub fn render_setup_page(snapshot: &SetupSnapshot, checked_at: i64) -> String {
             at.year(), u8::from(at.month()), at.day(), at.hour(), at.minute(),
         ));
     }
-    let needs_action = snapshot.checks.iter().filter(|c| c.state == CheckState::ActionRequired).count();
-    let unknown = snapshot.checks.iter().filter(|c| matches!(c.state, CheckState::NotVerified | CheckState::UnableToCheck)).count();
+    let needs_action = snapshot
+        .checks
+        .iter()
+        .filter(|c| c.state == CheckState::ActionRequired)
+        .count();
+    let unknown = snapshot
+        .checks
+        .iter()
+        .filter(|c| matches!(c.state, CheckState::NotVerified | CheckState::UnableToCheck))
+        .count();
     if needs_action > 0 {
         html.push_str(&format!("<p role=\"status\"><strong>{needs_action} setup checks require action.</strong> Review the details below.</p>"));
     }
