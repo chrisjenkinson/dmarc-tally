@@ -15,7 +15,19 @@ The goal is to replace a stream of XML reporting emails with a simple, private d
 - Automatically expire original emails once all DMARC data has been captured, with exceptions retained for investigation.
 - Upgrade through versioned CloudFormation stack updates without deleting reporting history.
 
-**Status:** Pre-release. Installation instructions will be added with the first release.
+**Status:** Pre-release. The generic, approval-gated installation workflow
+is documented in [docs/install.md](docs/install.md).
+
+To configure a local installation without a fork or second repository:
+
+```sh
+python3 scripts/install.py init
+# Edit .local/production.json (already excluded by .gitignore).
+python3 scripts/install.py check
+```
+
+CloudFormation planning and execution are separate, explicit commands;
+merging public source does not deploy or change DNS.
 
 ## Development
 
