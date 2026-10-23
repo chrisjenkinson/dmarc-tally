@@ -233,6 +233,8 @@ class ConfigurationTests(unittest.TestCase):
                         "VerifiedForSendingStatus": False}, ""
             if operation == ("ses", "describe-active-receipt-rule-set"):
                 return {}, ""
+            if operation == ("ses", "describe-receipt-rule-set"):
+                return {"Rules": []}, ""
             self.fail("Unexpected AWS operation")
 
         output = io.StringIO()
