@@ -542,9 +542,184 @@ def apply(cfg: dict, component: str, approved: str | None, public_edge: bool) ->
     print("CloudFormation " + component + " change set completed.")
 
 
+
+# Installation discovery deliberately has no local state of its own: it
+# derives progress from CloudFormation every time it runs. Do not use these
+# lightweight inspection results as permission to execute a change set.
+INSTALL_ORDER = ("artifacts", "ingestion", "web", "edge", "receiving")
+REQUIRED_OUTPUTS = {
+    "artifacts": ("ArtifactBucket",),
+    "ingestion": ("ReportsTable", "IntakeBucket", "FailureAlertTopicArn", "FailureAlarmNames"),
+    "web": ("WebFunctionArn",),
+    "edge": ("WebHttpsOrigin",),
+    "receiving": ("ReceiptRuleName",),
+}
+
+
+def inspect_installation_stack(cfg: dict, component: str) -> dict:
+    """Read live CloudFormation stack metadata; never modify resources."""
+    try:
+        result, error = aws_run(
+            cfg, "cloudformation", "describe-stacks",
+            "--stack-name", stack_name(cfg, component), allow_error=True,
+        )
+    except InstallError:
+        return {"state": "unavailable", "outputs": {}, "parameters": {}}
+    if error:
+        if "does not exist" in error:
+            return {"state": "missing", "outputs": {}, "parameters": {}}
+        return {"state": "unavailable", "outputs": {}, "parameters": {}}
+    stacks = result.get("Stacks")
+    if (not isinstance(stacks, list) or len(stacks) != 1
+            or stacks[0].get("StackName") != stack_name(cfg, component)):
+        return {"state": "unavailable", "outputs": {}, "parameters": {}}
+    stack = stacks[0]
+    status = stack.get("StackStatus")
+    if status == "REVIEW_IN_PROGRESS":
+        state = "pending"
+    elif status in ("CREATE_COMPLETE", "UPDATE_COMPLETE"):
+        state = "deployed"
+    else:
+        # Rollbacks and in-progress/failed updates must not be called ready.
+        state = "attention"
+    outputs = {row["OutputKey"]: row["OutputValue"]
+               for row in stack.get("Outputs", [])
+               if isinstance(row, dict) and isinstance(row.get("OutputKey"), str)
+               and isinstance(row.get("OutputValue"), str)}
+    parameters = {row["ParameterKey"]: row["ParameterValue"]
+                  for row in stack.get("Parameters", [])
+                  if isinstance(row, dict) and isinstance(row.get("ParameterKey"), str)
+                  and isinstance(row.get("ParameterValue"), str)}
+    missing = (tuple(key for key in REQUIRED_OUTPUTS[component] if not outputs.get(key))
+               if state == "deployed" else ())
+    return {"state": state, "outputs": outputs, "parameters": parameters,
+            "missing_outputs": missing}
+
+
+def inspect_installation(cfg: dict) -> dict:
+    """Read-only, authenticated-to-AWS inventory for status and summary."""
+    verify_account(cfg)  # Refuse to inspect the wrong account.
+    return {component: inspect_installation_stack(cfg, component)
+            for component in INSTALL_ORDER}
+
+
+def next_install_action(stacks: dict) -> str:
+    """Conservative recommendation, NOT approval to change anything."""
+    for component in INSTALL_ORDER:
+        state = stacks[component]["state"]
+        if state in ("attention", "unavailable", "pending"):
+            return (f"Inspect the {component} CloudFormation stack/change set in AWS "
+                    "and resolve its state before proceeding.")
+        if stacks[component].get("missing_outputs"):
+            return (f"Inspect/update the {component} stack: expected outputs are "
+                    "missing. Do not assume the next stack can deploy yet.")
+
+    for component in ("artifacts", "ingestion", "web", "edge"):
+        if stacks[component]["state"] == "missing":
+            if component == "artifacts":
+                return "Plan/review/apply the artifacts stack."
+            if component == "ingestion":
+                return ("Build/upload verified Lambda ZIPs, then "
+                        "plan/review/apply the ingestion stack.")
+            if component == "web":
+                return "Plan/review/apply the private web stack."
+            return "Plan/review/apply the HTTPS edge stack with explicit public-edge consent."
+
+    edge_origin = stacks["edge"]["outputs"].get("WebHttpsOrigin")
+    web_origin = stacks["web"]["parameters"].get("PublicOrigin")
+    if not edge_origin or web_origin != edge_origin:
+        return ("Plan/review/apply the web stack again using the deployed "
+                "HTTPS edge origin; sign-in is not ready yet.")
+
+    if stacks["receiving"]["state"] == "missing":
+        return ("Verify SES identity/rule-set safety, then plan/review/apply "
+                "the receiving stack disabled. Test sign-in first.")
+    state = stacks["receiving"]["parameters"].get("EnableReceiving")
+    if state != "true":
+        return ("Review the dedicated MX, SES rule order and destination; "
+                "enable receiving only by a separate approved operation, "
+                "then test delivery before editing monitored-domain rua.")
+    return ("Verify controlled SES-to-S3-to-DynamoDB delivery and real alarm "
+            "email receipt; only then redirect monitored-domain rua.")
+
+
+def show_status(cfg: dict, stacks: dict) -> None:
+    """Avoid printing account-specific email/receiving addresses here."""
+    print("DMARC Tally installation status (read-only CloudFormation snapshot)")
+    print("AWS account: checked; region: " + cfg["aws"]["region"])
+    for component in INSTALL_ORDER:
+        info = stacks[component]
+        state = info["state"]
+        label = {
+            "missing": "Not deployed",
+            "pending": "Change set prepared; not deployed",
+            "deployed": "Stack deployed",
+            "attention": "Needs CloudFormation review",
+            "unavailable": "Unable to inspect",
+        }[state]
+        if state == "deployed" and info.get("missing_outputs"):
+            label = "Deployed, but expected outputs are missing"
+        if component == "receiving" and state == "deployed":
+            enable = info["parameters"].get("EnableReceiving")
+            if enable == "true":
+                label += " (rule enabled; delivery unverified)"
+            elif enable == "false":
+                label += " (rule disabled)"
+            else:
+                label += " (rule enablement unverified)"
+        print(f"  {component}: {label}")
+    print("Next action: " + next_install_action(stacks))
+    print("This does not verify SES sender/sandbox, DNS, login, report flow or alert delivery.")
+
+
+def selected_release(stacks: dict) -> str:
+    """Identify a local build and whether deployed Lambda CodeKeys match it."""
+    if MANIFEST.is_symlink():
+        return "Not confirmed (release manifest is a symlink)"
+    try:
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        commit = manifest.get("commit")
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            return "Not confirmed (no valid local release manifest)"
+        artifacts = manifest["artifacts"]
+        keys = {name: artifacts[name]["key"] for name in ("ingest", "web")}
+        if not all(isinstance(keys[name], str) and
+                   keys[name].startswith("releases/" + commit + "/")
+                   for name in keys):
+            return "Not confirmed (release manifest is inconsistent)"
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return "Not confirmed (no valid local release manifest)"
+    deployed = (stacks["ingestion"]["parameters"].get("CodeKey") == keys["ingest"]
+                and stacks["web"]["parameters"].get("CodeKey") == keys["web"])
+    return (commit[:12] + (" (both deployed Lambda CodeKeys match the local manifest)"
+                           if deployed else
+                           " (local build; deployed Lambda versions not confirmed)"))
+
+
+def show_summary(cfg: dict, stacks: dict) -> None:
+    """Explicitly requested *private* output for the local administrator."""
+    email = cfg["email"]
+    origin = stacks["edge"]["outputs"].get("WebHttpsOrigin")
+    # Never echo arbitrary stack output as a URL unless it is a plain HTTPS
+    # origin. The corresponding web Lambda origin may still be unreconciled.
+    if not isinstance(origin, str) or not re.fullmatch(
+            r"https://[a-zA-Z0-9.-]+(?::[0-9]{1,5})?/?", origin):
+        origin = "Not deployed / not confirmed"
+    print("PRIVATE installation summary — do not paste into public logs or issues")
+    print("Dashboard URL: " + origin)
+    print("Administrator sign-in: " + email["administrator"])
+    print("DMARC receiving/forwarding address: " + email["receiving"])
+    print("Login email sender: " + email["sender"])
+    print("Failure alert email: " + email["alerts"])
+    print("Monitored domains: " + ", ".join(cfg["monitored_domains"]))
+    print("Selected release: " + selected_release(stacks))
+    print("Next action: " + next_install_action(stacks))
+    print("Configuration and stack outputs are not proof of successful mail or alarm delivery.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Locally configured DMARC Tally installer")
-    parser.add_argument("command", choices=["init", "check", "build", "upload", "plan", "apply"])
+    parser.add_argument("command", choices=["init", "check", "status", "summary", "build", "upload", "plan", "apply"])
     parser.add_argument("component", nargs="?", choices=sorted(STACKS))
     parser.add_argument("--approve", help="Exact reviewed CloudFormation change-set ARN")
     parser.add_argument("--allow-public-edge", action="store_true",
@@ -556,6 +731,10 @@ def main() -> None:
     cfg = load_config()
     if args.command == "check":
         print("Ignored local configuration is valid. No AWS calls were made.")
+    elif args.command == "status":
+        show_status(cfg, inspect_installation(cfg))
+    elif args.command == "summary":
+        show_summary(cfg, inspect_installation(cfg))
     elif args.command == "build":
         build()
     elif args.command == "upload":
