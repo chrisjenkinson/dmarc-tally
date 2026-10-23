@@ -19,8 +19,8 @@ use crate::{
         render_sign_in_requested,
     },
     pages::render_report_page,
-    setup::{render_setup_page, SetupInspector},
     report_queries::{load_overview, OverviewSelection, SelectionError},
+    setup::{render_setup_page, SetupInspector},
 };
 
 const SESSION_COOKIE: &str = "__Host-dmarc-session";

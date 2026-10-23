@@ -65,7 +65,10 @@ pub fn render_setup_page(snapshot: &SetupSnapshot) -> String {
     }
     html.push_str("<h3>Monitored domains</h3><ul>");
     for domain in &snapshot.monitored_domains {
-        html.push_str(&format!("<li><code>{}</code></li>", escape_html(domain.as_str())));
+        html.push_str(&format!(
+            "<li><code>{}</code></li>",
+            escape_html(domain.as_str())
+        ));
     }
     html.push_str("</ul><h3>Checks</h3><ul>");
     for check in &snapshot.checks {

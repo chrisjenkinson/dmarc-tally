@@ -125,7 +125,16 @@ impl Default for Fixture {
 impl Fixture {
     async fn send(&self, input: &Value) -> Value {
         let auth = Authentication::new(&self.admin, &self.store, &self.sender, &self.entropy);
-        handle_http_v2(input, &auth, &self.reports, &self.domains, &self.site, &self.setup, NOW).await
+        handle_http_v2(
+            input,
+            &auth,
+            &self.reports,
+            &self.domains,
+            &self.site,
+            &self.setup,
+            NOW,
+        )
+        .await
     }
     fn token(&self) -> String {
         self.sender.0.lock().unwrap().last().unwrap().clone()
@@ -155,15 +164,26 @@ async fn missing_session_cannot_read_reports_even_with_a_hostile_host_header() {
 #[tokio::test]
 async fn authenticated_setup_can_be_inspected_without_report_queries() {
     let f = Fixture::default();
-    f.send(&event("POST", "/auth/request", "email=admin%40example.com")).await;
+    f.send(&event("POST", "/auth/request", "email=admin%40example.com"))
+        .await;
     let token = f.token();
-    let response = f.send(&event("POST", "/auth/confirm", &format!("token={token}"))).await;
-    let cookie = response["cookies"][0].as_str().unwrap().split(';').next().unwrap();
+    let response = f
+        .send(&event("POST", "/auth/confirm", &format!("token={token}")))
+        .await;
+    let cookie = response["cookies"][0]
+        .as_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
     let mut request = event("GET", "/setup", "");
     request["cookies"] = json!([cookie]);
     let page = f.send(&request).await;
     assert_eq!(status(&page), 200);
-    assert!(page["body"].as_str().unwrap().contains("reports@dmarc.example.com"));
+    assert!(page["body"]
+        .as_str()
+        .unwrap()
+        .contains("reports@dmarc.example.com"));
     assert_eq!(f.setup.0.load(Ordering::SeqCst), 1);
     assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
 }

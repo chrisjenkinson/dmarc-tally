@@ -206,5 +206,16 @@ pub async fn handle_http_v2(
         cookie: input.cookie.as_deref(),
         body: &input.body,
     };
-    encode_response(handle(&request, auth, reports, domains, site, setup, now_epoch_seconds).await)
+    encode_response(
+        handle(
+            &request,
+            auth,
+            reports,
+            domains,
+            site,
+            setup,
+            now_epoch_seconds,
+        )
+        .await,
+    )
 }

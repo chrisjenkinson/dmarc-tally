@@ -186,7 +186,12 @@ fn configured_site_origin_rejects_open_redirects_credentials_or_insecure_urls() 
 #[tokio::test]
 async fn every_reporting_route_deny_access_before_any_repository_read() {
     let f = Fixture::default();
-    for route in ["/", "/setup", "/reports/012345/detail", "/reports/abc/original"] {
+    for route in [
+        "/",
+        "/setup",
+        "/reports/012345/detail",
+        "/reports/abc/original",
+    ] {
         let response = f.request(Request::new("GET", route), NOW).await;
         assert_eq!(response.status, 303, "route: {route}");
         assert_eq!(response.header("Location"), Some("/auth/login"));
@@ -220,7 +225,10 @@ async fn setup_page_is_protected_and_checked_only_on_explicit_authenticated_get(
 
     let mut expired = Request::new("GET", "/setup");
     expired.cookie = Some(credential);
-    assert_eq!(f.request(expired, NOW + SESSION_TTL_SECONDS).await.status, 303);
+    assert_eq!(
+        f.request(expired, NOW + SESSION_TTL_SECONDS).await.status,
+        303
+    );
     assert_eq!(f.setup.0.load(Ordering::SeqCst), 1);
 }
 

@@ -36,7 +36,12 @@ fn setup_page_shows_configured_address_monitored_domains_and_distinct_states() {
     assert!(html.contains("Setup status"));
     assert!(html.contains("aggregate@dmarc.example.com"));
     assert!(html.contains("example.com"));
-    for label in ["Action required", "Not verified", "Ready", "Unable to check"] {
+    for label in [
+        "Action required",
+        "Not verified",
+        "Ready",
+        "Unable to check",
+    ] {
         assert!(html.contains(label), "missing status: {label}");
     }
     assert!(html.contains("SES receiving rule"));
