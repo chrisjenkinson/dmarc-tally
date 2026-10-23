@@ -133,6 +133,125 @@ class ConfigurationTests(unittest.TestCase):
                 "receiving", {"EnableReceiving": "true"}, "UPDATE",
             )
 
+
+    def test_status_uses_only_read_only_aws_calls_and_suggests_first_step(self):
+        from unittest.mock import patch
+
+        cfg = configured()
+        commands = []
+
+        def fake_aws(_cfg, *args, allow_error=False):
+            commands.append(args)
+            if args[:2] == ("sts", "get-caller-identity"):
+                return {"Account": cfg["aws"]["account_id"]}, ""
+            if args[:2] == ("cloudformation", "describe-stacks"):
+                return {}, "Stack with id does not exist"
+            self.fail("Status must not mutate AWS: " + " ".join(args))
+
+        with patch.object(install, "aws_run", side_effect=fake_aws):
+            stacks = install.inspect_installation(cfg)
+        self.assertEqual(len(commands), 6)
+        self.assertTrue(all(c[:2] in (("sts", "get-caller-identity"),
+                                       ("cloudformation", "describe-stacks"))
+                            for c in commands))
+        self.assertTrue(all(stacks[key]["state"] == "missing"
+                            for key in install.INSTALL_ORDER))
+        self.assertEqual(install.next_install_action(stacks),
+                         "Plan/review/apply the artifacts stack.")
+
+        output = io.StringIO()
+        from contextlib import redirect_stdout
+        with redirect_stdout(output):
+            install.show_status(cfg, stacks)
+        self.assertIn("artifacts: Not deployed", output.getvalue())
+        self.assertNotIn(cfg["email"]["administrator"], output.getvalue())
+        self.assertNotIn(cfg["email"]["receiving"], output.getvalue())
+
+    def test_status_recommends_second_web_deployment_and_flags_disabled_receiving(self):
+        def component(state="deployed", outputs=None, parameters=None):
+            return {"state": state, "outputs": outputs or {},
+                    "parameters": parameters or {}, "missing_outputs": ()}
+        stacks = {
+            "artifacts": component(outputs={"ArtifactBucket": "bucket"}),
+            "ingestion": component(outputs={"IntakeBucket": "intake"}),
+            "web": component(parameters={"PublicOrigin": install.BOOTSTRAP_ORIGIN}),
+            "edge": component(outputs={"WebHttpsOrigin": "https://api.example.test"}),
+            "receiving": component(parameters={"EnableReceiving": "false"}),
+        }
+        self.assertIn("web stack again", install.next_install_action(stacks))
+        stacks["web"]["parameters"]["PublicOrigin"] = "https://api.example.test"
+        self.assertIn("enable receiving only", install.next_install_action(stacks))
+        stacks["receiving"]["parameters"]["EnableReceiving"] = "true"
+        self.assertIn("controlled SES-to-S3-to-DynamoDB",
+                      install.next_install_action(stacks))
+        stacks["ingestion"]["missing_outputs"] = ("FailureAlarmNames",)
+        self.assertIn("expected outputs are missing", install.next_install_action(stacks))
+        stacks["ingestion"]["missing_outputs"] = ()
+        stacks["web"]["state"] = "attention"
+        self.assertIn("Inspect the web CloudFormation", install.next_install_action(stacks))
+
+    def test_aws_inspection_distinguishes_missing_failed_and_permission_errors(self):
+        from unittest.mock import patch
+        cfg = configured()
+
+        def configured_result(_cfg, *args, allow_error=False):
+            self.assertEqual(args[:2], ("cloudformation", "describe-stacks"))
+            return {"Stacks": [{
+                "StackName": install.stack_name(cfg, "receiving"),
+                "StackStatus": "UPDATE_ROLLBACK_COMPLETE",
+                "Parameters": [{"ParameterKey": "EnableReceiving",
+                                "ParameterValue": "true"}],
+            }]}, ""
+        with patch.object(install, "aws_run", side_effect=configured_result):
+            self.assertEqual(install.inspect_installation_stack(cfg, "receiving")["state"],
+                             "attention")
+        with patch.object(install, "aws_run", return_value=({}, "AccessDenied")):
+            self.assertEqual(install.inspect_installation_stack(cfg, "receiving")["state"],
+                             "unavailable")
+        with patch.object(install, "aws_run", return_value=(
+                {"Stacks": [{"StackName": install.stack_name(cfg, "receiving"),
+                             "StackStatus": "REVIEW_IN_PROGRESS"}]}, "")):
+            self.assertEqual(install.inspect_installation_stack(cfg, "receiving")["state"],
+                             "pending")
+
+    def test_summary_is_explicit_private_and_release_matches_both_deployed_keys(self):
+        from contextlib import redirect_stdout
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        cfg = configured()
+        commit = "a" * 40
+        web_key = f"releases/{commit}/web/{'b' * 64}/bootstrap.zip"
+        ingest_key = f"releases/{commit}/ingest/{'c' * 64}/bootstrap.zip"
+        stacks = {part: {"state": "deployed", "outputs": {},
+                         "parameters": {}, "missing_outputs": ()}
+                  for part in install.INSTALL_ORDER}
+        stacks["edge"]["outputs"] = {
+            "WebHttpsOrigin": "https://api.example.test"}
+        stacks["web"]["parameters"] = {
+            "PublicOrigin": "https://api.example.test", "CodeKey": web_key}
+        stacks["ingestion"]["parameters"] = {"CodeKey": ingest_key}
+        stacks["receiving"]["parameters"] = {"EnableReceiving": "true"}
+        with TemporaryDirectory() as directory:
+            manifest = Path(directory) / "release.json"
+            manifest.write_text(json.dumps({
+                "commit": commit,
+                "artifacts": {"web": {"key": web_key}, "ingest": {"key": ingest_key}},
+            }))
+            with patch.object(install, "MANIFEST", manifest):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    install.show_summary(cfg, stacks)
+                value = output.getvalue()
+        self.assertIn("PRIVATE installation summary", value)
+        self.assertIn("https://api.example.test", value)
+        self.assertIn(cfg["email"]["administrator"], value)
+        self.assertIn(cfg["email"]["receiving"], value)
+        self.assertIn(cfg["email"]["alerts"], value)
+        self.assertIn(commit[:12], value)
+        self.assertIn("both deployed Lambda CodeKeys match", value)
+        self.assertIn("Next action:", value)
+        self.assertNotIn("000000000000", value)
+
     def test_unsafe_cloudformation_operations_must_fail_closed(self):
         safe = [
             {"ResourceChange": {"Action": "Add", "LogicalResourceId": "SafeLog", "ResourceType": "AWS::Logs::LogGroup"}},

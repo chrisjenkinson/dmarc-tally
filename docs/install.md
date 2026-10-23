@@ -59,6 +59,23 @@ The example configuration intentionally cannot deploy. Store an encrypted
 backup of `.local/production.json`, which is not an AWS credentials file.
 The installer does not print private settings in public CI output.
 
+After configuration, `status` reads live CloudFormation stack status and
+expected outputs in the configured account. It neither deploys nor enables
+anything, does not require a clean checkout or compiled ZIPs, and never
+prints private email addresses. It is useful on the first run, after each
+approved change, and when resuming an interrupted installation:
+
+```sh
+python3 scripts/install.py status
+```
+
+The command reports which stacks are deployed, absent, incomplete or
+unavailable, flags a missing ingestion output or unreconciled public web
+origin, and suggests the next **manual** step. It cannot prove SES
+sandbox/sender status, DNS correctness, login, end-to-end mail or alarm
+delivery: use separate checks and `/setup` once signed in. A suggested
+`plan` still requires its own reviewed change set and explicit `apply`.
+
 ## 2. Prepare SES sending and review SES receiving
 
 **Before attempting login**, verify the configured sending identity in SES
@@ -168,6 +185,20 @@ operations outside the generic installer:
    domains' existing DMARC `rua` entries, without clobbering their
    other policy tags. Publish external-destination authorisation where
    the domain relationship requires it.
+
+For a local, **private** completion summary, run:
+
+```sh
+python3 scripts/install.py summary
+```
+
+It displays the deployed HTTPS origin (where available), configured
+administrator/receiving/sender/alert addresses, the local release commit
+(and whether both deployed Lambda code keys match), plus the next action.
+This command intentionally prints private configuration: never paste its
+output into public issues, CI or installation logs. It derives the live
+part from CloudFormation and does not track progress in a new database.
+If the dashboard is not installed, a deployed URL cannot yet be confirmed.
 
 Use the authenticated `/setup` page to review live SES, MX/`rua`/
 authorisation, recent processing and alarm *configuration*. It is not
