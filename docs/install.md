@@ -1,149 +1,235 @@
-# Installing DMARC Tally from a local checkout (pre-release)
+# Install and operate DMARC Tally (pre-release)
 
-This guide separates the **public, generic source repository** from **one
-owner's private deployment settings**. No separate private repository, fork,
-configuration service or infrastructure framework is needed. The public
-CloudFormation templates, Rust crates, tests and installer can be used in any
-AWS account with appropriate SES support.
+DMARC Tally runs in your own AWS account. This is the **single first-install
+journey**, followed by upgrades and recovery. The other documents explain the
+underlying resources; they are not additional independent setup checklists.
 
-**Merging this code does not approve AWS/DNS changes.** All real stack
-changes, SES activation, mail and DNS need separate review and approval.
-Commands below are intended for the owner to run locally; CI never has an
-AWS profile, personal parameters or a public-facing deployed endpoint.
+The public repository holds source, templates and installer. Installation-
+specific addresses, AWS profile/account and selected release belong in
+ignored `.local/`; no second deployment repository is required.
 
-## Prerequisites
+**Never merge or run CI as permission to deploy.** Source changes cannot
+change AWS or DNS. Every CloudFormation deployment needs its own reviewed
+change set and explicit `apply` approval. Activation of SES and DNS edits
+are separate manual decisions.
 
-Python 3.11+, Git, a configured AWS CLI v2 profile, Rust stable, Zig and
-cargo-lambda (the same Rust Lambda ZIP packaging tested by CI). The AWS
-identity you select must have deployment permissions, including permissions
-to create CloudFormation change sets, stack resources and upload private
-S3 artifacts. SES receiving must be supported in the selected region.
-The current AWS infrastructure has been validated for ap-southeast-2.
+## 1. Plan the installation without disrupting mail
 
-Checkout a **known tag or full commit SHA**, not a moving branch, before
-building or installing. Keep the checkout clean. The installer records the
-exact Git commit and refuses to reuse an artifact manifest from another
-commit. Your ignored local config survives normal Git pull/checkout, but
-back it up securely before upgrading or replacing your computer.
+Use **a dedicated receiving subdomain** (e.g. `dmarc.example.org`) and
+exact report address (e.g. `reports@dmarc.example.org`). Its MX can point
+to SES without moving the MX for your normal mailbox. Do not replace
+existing mailbox MX or current domain DMARC policy.
 
-From the repository root:
+The local configuration identifies different roles:
 
-    python3 scripts/install.py init
-    # Edit .local/production.json and replace every example value.
-    python3 scripts/install.py check
+| Setting | Purpose |
+| --- | --- |
+| `monitored_domains` | Domains whose DMARC aggregate reports the dashboard displays |
+| `email.receiving` | Dedicated mailbox addressed in future DMARC `rua` and for controlled forwarding tests |
+| `email.administrator` | One private dashboard administrator; receives SES magic-link login mail |
+| `email.sender` / `sender_identity` | Outgoing SES login-mail address and corresponding SES verified identity |
+| `email.alerts` | Destination for production failure alarms; must confirm its SNS subscription |
+| `email.receipt_rule_set` / `receipt_rule_name` | Existing SES receipt rule set and exact rule expected in this region |
 
-The public example is in config/production.example.json. The installer
-**deliberately refuses** to use its example account, .invalid domains
-or email addresses. The real file and any release/change-set records live
-under .local/, which .gitignore already excludes. Never pass your real
-values to GitHub Actions, a public issue or a PR. Do not put credentials,
-access keys, raw DMARC messages or session tokens in this config. Use your
-local AWS profile or temporary role credentials.
+The receiving address is **not** a mailbox in Fastmail unless you separately
+configure it that way; its DNS will route to SES after activation. Keep
+the normal mail domain untouched.
 
-## Build immutable Lambda artifacts
+Prerequisites: Python 3.11+, Git, AWS CLI v2 and a configured AWS profile
+with the intended AWS account/region. For the **current source-build**
+installer, also install Rust stable, Zig and cargo-lambda. Prebuilt release
+bundles are not yet published. AWS must support SES receiving in the chosen
+region (infrastructure and tests currently target `ap-southeast-2`).
+You need permission to create reviewed CloudFormation change sets, create
+the specified resources and upload verified private S3 artifacts. Receiving
+and sending identities/DNS require independent SES/DNS permissions when
+manually configured.
 
-    python3 scripts/install.py build
+Use a **pinned commit or release tag**, not a moving `main`, for an install
+or upgrade. Preserve a clean checkout: the installer verifies its exact
+commit and its two Lambda ZIP checksums.
 
-This builds the Rust ingest and web binaries locally, checks each ZIP
-contains an executable x86-64 Linux bootstrap, and saves the ZIPs with
-their SHA-256 values and **exact Git commit** in .local/release.json.
-It uses cargo-lambda and your working checkout; it does not contact AWS.
-The manifest is refused if the checkout changes, a ZIP checksum fails,
-a ZIP is replaced, or the version-specific object key does not match.
+```sh
+python3 scripts/install.py init
+# Fill .local/production.json (never commit it).
+python3 scripts/install.py check
+```
 
-## Review one stack at a time
+The example configuration intentionally cannot deploy. Store an encrypted
+backup of `.local/production.json`, which is not an AWS credentials file.
+The installer does not print private settings in public CI output.
 
-The installer uses five distinct, generic CloudFormation templates:
+## 2. Prepare SES sending and review SES receiving
 
-| Component | Dependencies | What happens |
+**Before attempting login**, verify the configured sending identity in SES
+in the target region; determine whether the SES account is in the sandbox.
+Sandbox sending can require the **administrator recipient** to be verified
+as well. A verified sending identity alone does not guarantee delivery; a
+controlled sign-in attempt is still required.
+
+For inbound receiving, check the active SES rule set, other rules and
+their ordering **before** creating or activating your rule. Only one receipt
+rule set is active per region; do not displace existing receivers. Verify
+the dedicated receiving domain in SES and plan its regional MX and any
+required external reporting authorisation TXT records. **Do not change the
+monitored domains' `rua` yet.** The private `/setup` page will later show
+read-only diagnostics; it is inaccessible until first login works.
+
+For the security rationale, exact recipient semantics and region-specific
+MX example, see [SES receiving](ses-receiving.md).
+
+## 3. Build and deploy the application in dependency order
+
+```sh
+python3 scripts/install.py build
+python3 scripts/install.py plan artifacts
+# Review the CloudFormation change set carefully; then run the printed
+# apply command with that exact change-set ARN.
+python3 scripts/install.py apply artifacts --approve <REVIEWED_CHANGE_SET_ARN>
+python3 scripts/install.py upload
+```
+
+`build` creates and validates two x86-64 Linux bootstrap ZIPs, recording
+their SHA-256, immutable S3 object keys and source commit in
+`.local/release.json`. `upload` checks object checksums and refuses to
+overwrite different content at a release key.
+
+There are five independent plain CloudFormation components:
+
+| Component | Depends on | Result |
 | --- | --- | --- |
-| artifacts | None | Encrypted private, retained versioned Lambda ZIP bucket |
-| ingestion | artifacts | Private S3 intake, reports table, EventBridge Lambda and failure alarms |
-| web | artifacts, ingestion | Private web Lambda, auth table and narrow SES sending role |
-| edge | web | Publicly reachable managed HTTPS API Gateway route (session-gated app) |
-| receiving | ingestion | **Disabled** SES receipt rule in an existing rule set; no mail activation |
+| `artifacts` | — | Encrypted private retained artifact bucket |
+| `ingestion` | artifacts | Private S3 intake, EventBridge/Lambda, DynamoDB reports, failure alarms and SNS |
+| `web` | artifacts, ingestion | Private authenticated Lambda, retained auth state and read-only setup diagnostics |
+| `edge` | web | Publicly reachable HTTPS API Gateway with authenticated private routes |
+| `receiving` | ingestion | SES S3 receipt rule, **disabled on creation** |
 
-For each component, run:
+After upload, plan, review and apply **ingestion → web → edge → web
+again**. Each component uses the same two commands, for example:
 
-    python3 scripts/install.py plan artifacts
+```sh
+python3 scripts/install.py plan ingestion
+python3 scripts/install.py apply ingestion --approve <REVIEWED_CHANGE_SET_ARN>
+```
 
-The command first confirms that the configured AWS **account ID matches**
-the active AWS CLI profile. It creates a CloudFormation change set only:
-**no stack resources are created or updated by plan**. It prints generic
-actions, resource types and logical IDs, not domain/email parameters or
-raw AWS responses. Resource deletions, replacements, conditional
-replacements and **any update to a durable S3 bucket or DynamoDB table**
-are blocked from this ordinary upgrade workflow. Such changes require a
-separate reviewed recovery/migration procedure. The change-set ARN,
-configuration/template hashes and selected release are recorded in the
-ignored .local/plans/ directory.
+Do not reuse the example ARN: `plan` prints the actual one. `plan`
+creates a change set but does **not** execute it. It prints generic
+resource changes only. `apply` validates the same config, source, ZIP
+manifest, template, parameters and change set; it rejects deletes,
+replacements and ordinary updates to durable S3/DynamoDB resources.
+Explicit review is still required for other IAM/configuration changes.
 
-**Review that change set, the region, account and intended operations**
-using your locally authenticated AWS tools. Only after explicit owner
-approval, run the exact apply command printed by plan:
+When creating `edge`, `apply` additionally requires
+`--allow-public-edge`. The **first web install** uses a deliberately
+nonfunctional `https://bootstrap.invalid` origin because the HTTPS endpoint
+does not yet exist. After `edge` is deployed, **plan and apply `web`
+again** to replace that origin with the real `WebHttpsOrigin` output.
+The site cannot complete login before this second web update.
 
-    python3 scripts/install.py apply artifacts --approve <REVIEWED_CHANGE_SET_ARN>
+For new installs and upgrades of alert diagnostics, the **ingestion**
+stack must expose the `FailureAlarmNames` output before the web stack
+can be planned. Confirm the SNS email subscription for `email.alerts` in
+the message sent by AWS. An unconfirmed subscription is not alert delivery.
 
-Apply refuses a different change-set ARN, a changed config/checkout/ZIP,
-changed stack output, an unavailable change set or any deletion/replacement.
-It executes the already-reviewed set and waits for CloudFormation to
-finish. It never runs DNS commands or enables SES mail delivery.
-The public HTTPS edge needs one **additional** explicit
---allow-public-edge flag because creating it makes a login endpoint
-reachable on the internet (though private reports stay session-protected).
+Expected application checkpoint: you have an HTTPS dashboard URL from the
+edge stack and can request a login link at `/auth/login`. Confirm the
+configured administrator receives the message and completes sign-in.
+If it does not arrive, check SES sender identity, region, sandbox recipient
+requirements, delivery restrictions and the configured origin before
+working on receiving DNS. Do **not** publish tokens or email contents
+into tickets/logs.
 
-Once the artifacts stack exists, upload the two verified ZIPs:
+## 4. Activate dedicated receiving **only after reviewing its impact**
 
-    python3 scripts/install.py upload
+Create the disabled receiving rule using reviewed `plan receiving` /
+`apply receiving` commands. Those commands **cannot enable** inbound mail.
+For an existing receiving stack, the installer uses
+`UsePreviousValue=true` for `EnableReceiving` so routine upgrades
+do not silently disable previously approved receiving.
 
-The uploader uses content-addressed release keys
-releases/<commit>/<binary>/<sha256>/bootstrap.zip; it refuses overwriting
-a different existing object and verifies the S3 object's checksum metadata.
-It doesn't need a public GitHub release or a short-lived Actions artifact.
+Then explicitly review and, where appropriate, perform these *manual*
+operations outside the generic installer:
 
-Continue in this order: **ingestion**, **web**, **edge**, then **web again**.
-For upgrades adding alert diagnostics, apply the ingestion stack update first:
-the web installer needs its new `FailureAlarmNames` output to inspect the
-four existing CloudWatch alarms. This does not modify the alarms or subscribe
-an address automatically beyond the existing reviewed stack configuration.
-The first web install uses a reserved, intentionally nonfunctional
-https://bootstrap.invalid origin because the API Gateway URL does not
-exist yet. After the edge is approved and deployed, planning **web again**
-automatically uses its actual WebHttpsOrigin output and prompts a reviewed
-web Lambda configuration update. Don't attempt a real browser login until
-this second update is complete and SES sending is verified.
+1. Verify SES identity, existing active rule set/order and precise S3
+   action permissions; create/publish the **dedicated** receiving-domain
+   MX (not the ordinary mailbox MX).
+2. Enable only the approved exact-recipient receipt rule. Select/activate
+   a rule set only if reviewed against other receivers.
+3. From your normal mail provider, send one controlled email to the
+   dedicated address and confirm SES stored the corresponding raw MIME
+   in the production S3 `incoming/` prefix. A regular message tests
+   routing, **not** DMARC parsing.
+4. Send/forward a supported DMARC aggregate-report fixture **as an
+   attachment** and verify S3 → EventBridge → Lambda → DynamoDB, plus
+   the `captured=true` tag. Do not publish fixtures containing private
+   mail to the public repository. Test replay/failure handling and alarm
+   delivery separately.
+5. **Only after that end-to-end test succeeds**, update the monitored
+   domains' existing DMARC `rua` entries, without clobbering their
+   other policy tags. Publish external-destination authorisation where
+   the domain relationship requires it.
 
-Finally, plan **receiving** only after manually inspecting any existing
-active SES rule set, SES identity and MX/rua DNS. For the first deployment,
-the installer explicitly creates the receipt rule with
-`EnableReceiving=false`, so provisioning is *not* permission to redirect
-or accept mail. When **updating an existing receiving stack**, the installer
-uses CloudFormation's `UsePreviousValue=true` for that one parameter,
-preserving its actual deployed enabled/disabled state. A future upgrade
-must not accidentally disable a rule that was explicitly activated.
-The installer still cannot enable inbound mail itself.
+Use the authenticated `/setup` page to review live SES, MX/`rua`/
+authorisation, recent processing and alarm *configuration*. It is not
+continuous monitoring. The processing marker may reflect an S3 upload
+rather than an SES-delivered message. Similarly, a configured SNS
+subscription and alarms do **not** prove a real alarm email arrived.
 
-Explicitly enabling inbound mail, selecting or activating the rule set,
-and changing DNS require separate reviewed actions outside this installer.
-See docs/ses-receiving.md.
+## Troubleshooting and recovery
 
-## Upgrades, recovery and privacy
+| Observation | Next action |
+| --- | --- |
+| `check` passes but login email does not arrive | Inspect SES sending identity, account sandbox, admin recipient and second web origin deployment |
+| No dashboard URL | Confirm `edge` stack is deployed; inspect its `WebHttpsOrigin` output |
+| Unable to plan web | Confirm artifact/ingestion stacks and their expected outputs, and upload verified ZIPs |
+| SES rule looks correct but email not received | Inspect exact envelope recipient, active rule set/order, dedicated MX, SES IAM role and intake bucket; do not change ordinary mailbox MX |
+| S3 mail arrives but no report appears | Check EventBridge, ingest Lambda, retained untagged input and failure queues; a non-DMARC message is not a parser test |
+| Alarms look wired but no alerts arrive | Confirm SNS email subscription, then perform a separately approved real alarm test |
+| Failed / incomplete CloudFormation operation | Inspect the exact stack/change-set in AWS; do not blindly rerun `apply` or bypass replacement safeguards |
 
-Before upgrading, back up .local/production.json and the pinned release
-manifest securely; store encrypted/off-site if appropriate. Keep previous
-S3 release ZIPs for rollback. Checkout the chosen new Git tag/full commit
-and run build, upload and reviewed stack changes again. A deployed
-DynamoDB table and S3 intake bucket are retained across ordinary stack
-updates and deletion, but **captured=true originals still expire via their
-S3 lifecycle policy**. Never accept a CloudFormation replacement or
-removal of a durable resource without a separate recovery plan.
+For component-specific details, see [production ingestion](production-ingestion.md),
+[private web](web-private-infra.md), [HTTPS edge](web-http-edge.md)
+and [setup status](setup-status.md).
 
-The installer makes no claim that the live account, alarms, SES sandbox,
-DNS or browser flow have been verified. Before real use, conduct the
-isolated S3 ingestion, duplicate/failure/replay, outbound email and browser
-auth tests described in docs/production-ingestion.md,
-docs/web-private-infra.md and docs/web-http-edge.md.
+## Upgrade, rollback and decommissioning
 
-A private deployment repository becomes optional only if the team later
-needs collaborative GitOps or automation. For one administrator and one
-installation, the ignored local configuration is the simpler choice.
+For an upgrade, back up `.local/` securely, check out the intended new
+immutable commit, rebuild and upload the new checked ZIPs, then plan and
+review each **affected** stack in dependency order. Existing S3 intake
+and DynamoDB reports/auth are retained; the ordinary installer blocks
+their modification, deletion and replacement. Deploying new source does
+not automatically change the running Lambdas.
+
+For rollback, use a **known previous commit and its verified ZIPs** and
+review new change sets. Revert the intended Lambda/config changes without
+assuming a schema downgrade is safe. Investigate any failed deployment
+before running another change set. Keep retained resources and existing
+domain DNS in place unless separately reviewed.
+
+Decommissioning is **not** an installer command. Stop new DMARC reporting
+first by deliberately updating `rua` (and, where appropriate, the dedicated
+MX and receipt rule), without touching ordinary email. Review SES and
+subscription implications, then remove AWS stacks only with explicit
+approval. `DeletionPolicy: Retain` means durable S3/DynamoDB (and some
+failure queues) **are not automatically deleted** with the stack.
+Inventory retained data, backups, S3 lifecycle policies and continuing
+storage charges before deleting anything manually. Successfully captured
+raw MIME normally expires by the S3 one-day lifecycle; incomplete,
+untagged mail is retained for investigation.
+
+## Permissions, costs and privacy
+
+Installation provisions billable AWS services including Lambda,
+API Gateway, S3, DynamoDB, EventBridge, SQS, SES, CloudWatch Logs/Alarms
+and SNS. Usage, retained objects, retries and testing affect charges;
+the free tier is not a zero-cost guarantee. Use normal AWS billing alerts
+and review the actual region/service prices before installation.
+
+The scoped application roles are not the same as the broader **deployer**
+AWS permissions required for change sets/IAM/stack resources. Never put
+AWS credentials, private email, sign-in links or raw DMARC XML into tracked
+config, public CI, issues or examples. Keep `.local/` securely backed up.
+
+A second private deployment repository, unattended deployment agent,
+new infrastructure framework or installer state database is not required
+for the initial single-owner installation.

@@ -71,40 +71,39 @@ writing would require separate bucket-owner permissions and security review.
    intended SES inbound endpoint; for Sydney that is
    `10 inbound-smtp.ap-southeast-2.amazonaws.com`. Publish MX only on
    explicit approval and ensure the dedicated subdomain is being used.
-6. Update each monitored domain's DMARC `rua` entry to
-   `mailto:<ReceivingAddress>`, after validating its existing DMARC
-   policy. **External** reporting destinations may require a TXT
-   authorization record at
-   `<policy-domain>._report._dmarc.<destination-domain>`
-   with a `v=DMARC1` value, per DMARC external destination verification.
-   Do not overwrite existing DMARC policy elements accidentally.
-7. With the destination, identity, MX, rule order and incoming S3 IAM
-   rights reviewed, explicitly set `EnableReceiving=true` in a
-   CloudFormation change set. Where needed, separately activate the
-   reviewed rule set. Never switch the active set out from under an
-   unrelated receiving application.
-8. Send a **single approved real test message** to the dedicated address,
-   then verify exactly one corresponding complete MIME S3 object
-   `incoming/<SES-message-id>`, EventBridge invocation, DynamoDB report
-   persistence and `captured=true` tagging for a supported test report.
-   A non-DMARC message should remain retained and untagged. Use a real
-   aggregate-report fixture only with appropriate privacy controls; keep
-   its MIME out of the public repository, issues and CloudWatch logs.
-9. Exercise malformed/oversized mail and duplicate delivery handling and
-   confirm existing EventBridge/Lambda failure alarms and replay procedures.
-   The Lambda's current MIME size limit is **30 MiB**; report messages larger
-   than the application limit are intentionally retained without capture.
-   Do not assume SES accepts exactly the same upper limit.
-10. Only after one full integration test has passed should you redirect
-    monitored domains' ongoing DMARC reports to the receiving address.
+6. Review any existing DMARC policies and prepare, where needed, an
+   external-reporting authorisation TXT at
+   `<policy-domain>._report._dmarc.<destination-domain>` with `v=DMARC1`.
+   **Do not change the monitored domains' `rua` yet.**
+7. With identity, dedicated MX, rule ordering and S3 IAM reviewed,
+   explicitly enable only the approved receipt rule via a separately
+   reviewed CloudFormation change set outside the generic installer.
+   Where needed, separately activate the reviewed rule set, never
+   displacing other receiving applications.
+8. Send **one controlled ordinary test email** to the dedicated address
+   from the normal mail provider. Verify arrival through SES in S3 as a
+   complete MIME object under `incoming/`. Ordinary mail tests routing,
+   not DMARC parsing; it should remain untagged.
+9. Separately send/forward a supported aggregate-report fixture **as an
+   attachment**. Verify SES → S3 → EventBridge → Lambda → DynamoDB
+   persistence and `captured=true` tagging. Exercise replay and failure
+   alarms (including a separately approved delivery test); keep private
+   fixtures out of public logs/issues. The current importer limit is
+   **30 MiB**, which is not necessarily the SES acceptance limit.
+10. **Only after a successful end-to-end test**, update monitored domains'
+    DMARC `rua` to `mailto:<ReceivingAddress>`, preserving the remaining
+    existing DMARC tags. Publish additional external authorisation where
+    required; do not disrupt normal mailbox MX.
 
-## Not in this PR
+## Relation to the rest of the installation
 
-The template does not deploy the production ingestion stack or add
-captured-object lifecycle expiry. An isolated test stack can validate
-functionality, but **real production installation still needs an
-ingestion/base-stack template, artifact/version management, and a reviewed
-retention policy**. Those are tracked separately.
+Production ingestion and captured-only S3 lifecycle expiration are
+implemented in `infra/production-ingestion.yaml`. The separate
+`scripts/install.py` workflow builds/releases and deploys that stack
+with reviewed change sets; it creates this receiving rule disabled
+on the first deployment and preserves the existing enabled state on
+updates. **It never activates receiving or edits DNS automatically.**
 
-No AWS account changes, real email sends, SES activation, DNS changes or
-CloudFormation deployments are performed by CI or by merging this source PR.
+Follow the single end-to-end [installation guide](install.md) for the
+actual deployment order, browser login, controlled delivery test and
+upgrade/recovery steps. CI and merging do not alter AWS or DNS.
