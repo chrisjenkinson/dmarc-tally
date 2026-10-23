@@ -55,6 +55,7 @@ impl SpySender {
 #[derive(Default)]
 struct SpyReports {
     reads: AtomicUsize,
+    fail_lookup: AtomicBool,
 }
 #[async_trait]
 impl ReportRepository for SpyReports {
@@ -79,7 +80,11 @@ impl ReportRepository for SpyReports {
         _: &ReportReference,
     ) -> Result<Option<StoredReport>, StoreError> {
         self.reads.fetch_add(1, Ordering::SeqCst);
-        Ok(None)
+        if self.fail_lookup.load(Ordering::SeqCst) {
+            Err(StoreError::Unavailable("internal AWS detail must not leak".into()))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_report(&self, _: &ReportIdentity) -> Result<Option<StoredReport>, StoreError> {
@@ -513,5 +518,21 @@ async fn invalid_or_unconfigured_report_links_do_not_read_the_repository() {
     query.cookie = Some(credential);
     query.query = "download=1";
     assert_eq!(fixture.request(query, NOW).await.status, 404);
+    assert_eq!(fixture.reports.reads.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn report_repository_errors_are_503_without_leaking_backend_details() {
+    let fixture = Fixture::default();
+    let token = fixture.login().await;
+    let cookie = fixture.redeem(&token, NOW).await;
+    let credential = cookie.split(';').next().unwrap();
+    fixture.reports.fail_lookup.store(true, Ordering::SeqCst);
+    let path = format!("/reports/example.com/{:020}/{}", NOW, "a".repeat(64));
+    let mut req = Request::new("GET", &path);
+    req.cookie = Some(credential);
+    let page = fixture.request(req, NOW).await;
+    assert_eq!(page.status, 503);
+    assert!(!page.body.contains("internal AWS detail"));
     assert_eq!(fixture.reports.reads.load(Ordering::SeqCst), 1);
 }
