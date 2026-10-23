@@ -110,11 +110,18 @@ web Lambda configuration update. Don't attempt a real browser login until
 this second update is complete and SES sending is verified.
 
 Finally, plan **receiving** only after manually inspecting any existing
-active SES rule set, SES identity and MX/rua DNS. It always sets
-EnableReceiving=false, so deploying the receipt rule is *not* permission
-to redirect or accept mail. Explicitly enabling inbound mail, selecting
-or activating the rule set, and changing DNS require separate reviewed
-actions outside this installer. See docs/ses-receiving.md.
+active SES rule set, SES identity and MX/rua DNS. For the first deployment,
+the installer explicitly creates the receipt rule with
+`EnableReceiving=false`, so provisioning is *not* permission to redirect
+or accept mail. When **updating an existing receiving stack**, the installer
+uses CloudFormation's `UsePreviousValue=true` for that one parameter,
+preserving its actual deployed enabled/disabled state. A future upgrade
+must not accidentally disable a rule that was explicitly activated.
+The installer still cannot enable inbound mail itself.
+
+Explicitly enabling inbound mail, selecting or activating the rule set,
+and changing DNS require separate reviewed actions outside this installer.
+See docs/ses-receiving.md.
 
 ## Upgrades, recovery and privacy
 

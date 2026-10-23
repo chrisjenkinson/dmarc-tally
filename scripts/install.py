@@ -332,9 +332,23 @@ def parameters(component: str, cfg: dict, outputs: dict, release: dict) -> dict:
             "ReceiptRuleName": email["receipt_rule_name"],
             "ReceivingAddress": email["receiving"],
             "IntakeBucketName": outputs["ingestion"]["IntakeBucket"],
-            "EnableReceiving": "false",  # Never activate inbound mail through installer.
+            "EnableReceiving": "false",  # Used only on CREATE; UPDATE retains deployed state.
         }
     raise InstallError("Unknown CloudFormation component.")
+
+
+def change_set_parameters(component: str, params: dict, change_type: str) -> list[dict]:
+    """Preserve manually activated SES receiving on updates; never activate it here."""
+    require(change_type in ("CREATE", "UPDATE"), "change-set type")
+    if component == "receiving":
+        require(params.get("EnableReceiving") == "false", "receiving activation")
+    result = []
+    for key, value in params.items():
+        if component == "receiving" and key == "EnableReceiving" and change_type == "UPDATE":
+            result.append({"ParameterKey": key, "UsePreviousValue": True})
+        else:
+            result.append({"ParameterKey": key, "ParameterValue": value})
+    return result
 
 
 def dependencies(component: str) -> tuple[str, ...]:
@@ -433,6 +447,7 @@ def plan(cfg: dict, component: str) -> None:
     params, manifest_hash = resolved_parameters(cfg, component)
     existing = read_stack(cfg, component, optional=True)
     change_type = "UPDATE" if existing else "CREATE"
+    change_params = change_set_parameters(component, params, change_type)
     template = ROOT / "infra" / STACKS[component]
     change_name = "manual-" + os.urandom(6).hex()
     with tempfile.NamedTemporaryFile(
@@ -441,8 +456,7 @@ def plan(cfg: dict, component: str) -> None:
     ) as tmp:
         parameters_path = Path(tmp.name)
         os.chmod(parameters_path, 0o600)
-        json.dump([{"ParameterKey": key, "ParameterValue": value}
-                   for key, value in params.items()], tmp)
+        json.dump(change_params, tmp)
     try:
         response, _ = aws_run(
             cfg, "cloudformation", "create-change-set",
@@ -477,7 +491,7 @@ def plan(cfg: dict, component: str) -> None:
         "component": component, "change_set": arn, "change_type": change_type,
         "commit": commit, "config_hash": fingerprint(cfg),
         "manifest_hash": manifest_hash, "template_hash": sha256_bytes(template.read_bytes()),
-        "parameters_hash": fingerprint(params), "changes_hash": changes_digest(changes),
+        "parameters_hash": fingerprint(change_params), "changes_hash": changes_digest(changes),
     })
     print("Change set is prepared but NOT executed.")
     print("To approve it, run: python3 scripts/install.py apply " + component +
@@ -501,10 +515,11 @@ def apply(cfg: dict, component: str, approved: str | None, public_edge: bool) ->
         raise InstallError("Checkout or local installation configuration changed since review.")
     verify_account(cfg)
     params, manifest_hash = resolved_parameters(cfg, component)
+    change_params = change_set_parameters(component, params, saved.get("change_type"))
     template = ROOT / "infra" / STACKS[component]
     if (saved.get("manifest_hash") != manifest_hash
             or saved.get("template_hash") != sha256_bytes(template.read_bytes())
-            or saved.get("parameters_hash") != fingerprint(params)):
+            or saved.get("parameters_hash") != fingerprint(change_params)):
         raise InstallError("Artifact, template or resolved parameters changed since review.")
     review, _ = aws_run(cfg, "cloudformation", "describe-change-set",
                         "--change-set-name", approved, "--stack-name", stack_name(cfg, component))
