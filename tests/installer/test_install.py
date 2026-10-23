@@ -276,6 +276,38 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(states["SES rule-order overlap"], "ACTION")
         self.assertEqual(calls.count(("ses", "describe-active-receipt-rule-set")), 1)
 
+
+    def test_receiving_blockers_do_not_prevent_first_login(self):
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        cfg = configured()
+        output = io.StringIO()
+
+        def fake_aws(_cfg, *args, allow_error=False):
+            if args[:2] == ("sts", "get-caller-identity"):
+                return {"Account": cfg["aws"]["account_id"]}, ""
+            if args[:2] == ("sesv2", "get-account"):
+                return {"SendingEnabled": True, "ProductionAccessEnabled": True}, ""
+            if args[:2] == ("sesv2", "get-email-identity"):
+                return {"VerificationStatus": "SUCCESS",
+                        "VerifiedForSendingStatus": True}, ""
+            if args[:2] == ("ses", "describe-active-receipt-rule-set"):
+                return {"Metadata": {"Name": "other-app"},
+                        "Rules": [{"Name": "all", "Enabled": True,
+                                   "Recipients": []}]}, ""
+            if args[:2] == ("ses", "describe-receipt-rule-set"):
+                return {"Rules": []}, ""
+            self.fail("Unexpected AWS operation")
+
+        with (patch.object(install, "aws_run", side_effect=fake_aws),
+              patch.object(install, "preflight_tools", return_value=[]),
+              patch.object(install.shutil, "which", return_value="/usr/bin/aws"),
+              redirect_stdout(output)):
+            self.assertTrue(install.run_preflight(cfg))
+        self.assertIn("[ACTION] Active SES rule set:", output.getvalue())
+        self.assertIn("Receiving: Manual review required", output.getvalue())
+        self.assertIn("First login: No detected blockers", output.getvalue())
+
     def test_permission_failure_is_unknown_and_raw_errors_never_printed(self):
         from unittest.mock import patch
         from contextlib import redirect_stdout
