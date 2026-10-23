@@ -155,6 +155,10 @@ Resources:
                 Condition:
                   StringEquals:
                     aws:RequestedRegion: !Ref 'AWS::Region'
+              - Sid: ReadOnlyCaptureEvidence
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${IntakeBucketName}/setup/last-captured.json'
               - Sid: WriteOnlyPrivateWebLogs
                 Effect: Allow
                 Action:

@@ -37,6 +37,21 @@ The permission has no resource-level scope, so IAM limits it to this one
 read action in the deployment region. No rule set is ever activated by
 this inspector.
 
+On successful complete ingestion (after DynamoDB persistence and the
+`captured=true` tag), the ingest Lambda writes a tiny S3 marker under
+`setup/last-captured.json`, containing a schema version and timestamp only.
+The web Lambda may read this exact object, but not raw MIME. Its check is
+**Ready** only for processing evidence observed within seven days. Old,
+missing or malformed evidence never proves health. S3 EventBridge filters
+only `incoming/`, so this marker cannot trigger another import. The
+marker is retained independently of one-day MIME expiration and is not a
+customer-facing history.
+
+This is evidence of *processing*, **not** an SES-to-S3 delivery test:
+manual S3 uploads can also be processed. End-to-end delivery remains
+Not verified until a controlled real email is sent and its receipt is
+confirmed separately.
+
 A **Ready** receipt-rule status proves only these observed settings.
 Earlier rules, IAM role permission issues, bucket policy, DNS MX/rua,
 S3 EventBridge notification routing and ingestion can still prevent delivery.

@@ -16,6 +16,7 @@ use tally_aws::{
     ses_email::{SesEmailSender, SignInOrigin},
     ses_identity::{IdentityEvidence, SesIdentityReader},
     ses_receiving::{ReceiptEvidence, SesReceiptReader},
+    setup_evidence::{ProcessingEvidence, ProcessingEvidenceStore},
 };
 use tally_core::{
     authentication::{AdminEmail, Authentication},
@@ -48,6 +49,7 @@ struct SesSetupInspector {
     receiving_rule_set: String,
     receiving_rule_name: String,
     intake_bucket: String,
+    evidence: ProcessingEvidenceStore,
     domains: DomainSet,
 }
 
@@ -68,6 +70,25 @@ impl SetupInspector for SesSetupInspector {
             None => None,
         };
         let sending = self.identities.inspect(&self.sender_identity, true).await;
+        let processing = self.evidence.inspect(&self.intake_bucket).await;
+        let (processing_state, processing_detail) = match processing {
+            ProcessingEvidence::Recent => (
+                CheckState::Ready,
+                "A complete incoming S3 email was durably ingested and capture-tagged within seven days. This does not prove SES delivered it.",
+            ),
+            ProcessingEvidence::Old => (
+                CheckState::NotVerified,
+                "Successful S3 ingestion was observed previously, but not within seven days. Check actual mail flow.",
+            ),
+            ProcessingEvidence::NotObserved => (
+                CheckState::NotVerified,
+                "No retained successful-ingestion evidence yet. Send a controlled report and verify its ingestion.",
+            ),
+            ProcessingEvidence::UnableToCheck => (
+                CheckState::UnableToCheck,
+                "Processing evidence could not be read from the private intake bucket.",
+            ),
+        };
         let receipt = match self.receiving_address.as_deref() {
             Some(address) if AdminEmail::parse(address).is_ok() => {
                 self.receipts
@@ -151,9 +172,14 @@ impl SetupInspector for SesSetupInspector {
                     detail: "Receiving MX, monitored-domain rua and external authorization have not been checked.".into(),
                 },
                 SetupCheck {
+                    title: "DMARC email processing",
+                    state: processing_state,
+                    detail: processing_detail.into(),
+                },
+                SetupCheck {
                     title: "End-to-end report delivery",
                     state: CheckState::NotVerified,
-                    detail: "A successfully received, processed report has not been verified.".into(),
+                    detail: "A verified SES-to-S3-to-database test still needs an explicitly sent test email and confirmation of its receipt. Generic processing evidence is insufficient.".into(),
                 },
                 SetupCheck {
                     title: "Failure notifications",
@@ -206,6 +232,7 @@ async fn main() -> Result<(), Error> {
             receiving_rule_set,
             receiving_rule_name,
             intake_bucket,
+            evidence: ProcessingEvidenceStore::new(aws_sdk_s3::Client::new(&config)),
             domains: domains.clone(),
         },
         domains,
