@@ -134,6 +134,220 @@ class ConfigurationTests(unittest.TestCase):
             )
 
 
+
+    def test_preflight_tools_are_read_only_and_do_not_need_live_aws(self):
+        from unittest.mock import patch, Mock
+
+        def tool_version(command, **_kwargs):
+            return Mock(returncode=0, stderr="", stdout=(
+                "aws-cli/2.38.0 Python/3.13" if command[0] == "aws"
+                else "cargo-lambda 1"))
+        with (patch.object(install.shutil, "which", side_effect=lambda name:
+                    "/usr/bin/" + name if name in {"aws", "git", "cargo"} else None),
+              patch.object(install.subprocess, "run", side_effect=tool_version),
+              patch.object(install, "aws_run", side_effect=AssertionError("no AWS needed"))):
+            rows = install.preflight_tools()
+        states = {name: state for name, state, _ in rows}
+        self.assertEqual(states["AWS CLI"], "READY")
+        self.assertNotIn("AWS CLI version", states)
+        self.assertEqual(states["Rust/Cargo"], "READY")
+        self.assertEqual(states["Zig"], "ACTION")
+        self.assertEqual(states["cargo-lambda"], "READY")
+
+
+    def test_preflight_rejects_aws_cli_v1_without_running_aws(self):
+        from unittest.mock import patch, Mock
+
+        with (patch.object(install.shutil, "which", side_effect=lambda name:
+                    "/usr/bin/" + name if name == "aws" else None),
+              patch.object(install.subprocess, "run",
+                           return_value=Mock(returncode=0, stdout="aws-cli/1.45.0", stderr="")),
+              patch.object(install, "aws_run", side_effect=AssertionError("no AWS API"))):
+            states = {name: state for name, state, _ in install.preflight_tools()}
+        self.assertEqual(states["AWS CLI version"], "ACTION")
+
+    def test_preflight_allows_disabled_not_yet_deployed_rule_but_checks_login(self):
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        cfg = configured()
+        calls = []
+
+        def fake_aws(_cfg, *args, allow_error=False):
+            calls.append(args)
+            operation = args[:2]
+            if operation == ("sts", "get-caller-identity"):
+                return {"Account": cfg["aws"]["account_id"]}, ""
+            if operation == ("sesv2", "get-account"):
+                return {"SendingEnabled": True, "ProductionAccessEnabled": False}, ""
+            if operation == ("sesv2", "get-email-identity"):
+                identity = args[args.index("--email-identity") + 1]
+                if identity in (cfg["email"]["sender_identity"],
+                                "fake.tld", "dmarc.fake.tld"):
+                    return {"VerificationStatus": "SUCCESS",
+                            "VerifiedForSendingStatus": True}, ""
+                return {}, "NotFoundException: private admin@example"
+            if operation == ("ses", "describe-active-receipt-rule-set"):
+                return {"Metadata": {"Name": "private_rules"}, "Rules": []}, ""
+            self.fail("Unexpected or mutating AWS call: " + str(operation))
+
+        output = io.StringIO()
+        with (patch.object(install, "aws_run", side_effect=fake_aws),
+              patch.object(install, "preflight_tools", return_value=[]),
+              patch.object(install.shutil, "which", return_value="/usr/bin/aws"),
+              redirect_stdout(output)):
+            result = install.run_preflight(cfg)
+        self.assertTrue(result)
+        message = output.getvalue()
+        self.assertIn("[READY] SES sandbox administrator recipient:", message)
+        self.assertIn("[LATER] Intended SES receipt rule:", message)
+        self.assertIn("No detected blockers for the initial login", message)
+        self.assertNotIn(cfg["email"]["administrator"], message)
+        self.assertNotIn(cfg["email"]["receiving"], message)
+        self.assertNotIn("admin@example", message)
+        self.assertTrue(all(call[:2] in {
+            ("sts", "get-caller-identity"),
+            ("sesv2", "get-account"),
+            ("sesv2", "get-email-identity"),
+            ("ses", "describe-active-receipt-rule-set"),
+        } for call in calls))
+
+    def test_preflight_refuses_wrong_account_without_other_aws_lookups(self):
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        cfg = configured()
+        calls = []
+
+        def fake_aws(_cfg, *args, allow_error=False):
+            calls.append(args)
+            return {"Account": "999999999999"}, ""
+
+        output = io.StringIO()
+        with (patch.object(install, "aws_run", side_effect=fake_aws),
+              patch.object(install, "preflight_tools", return_value=[]),
+              patch.object(install.shutil, "which", return_value="/usr/bin/aws"),
+              redirect_stdout(output)):
+            self.assertFalse(install.run_preflight(cfg))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][:2], ("sts", "get-caller-identity"))
+        self.assertIn("[ACTION] AWS account/region:", output.getvalue())
+        self.assertNotIn("999999999999", output.getvalue())
+
+    def test_preflight_flags_ses_sandbox_and_bad_sender(self):
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        cfg = configured()
+
+        def fake_aws(_cfg, *args, allow_error=False):
+            operation = args[:2]
+            if operation == ("sts", "get-caller-identity"):
+                return {"Account": cfg["aws"]["account_id"]}, ""
+            if operation == ("sesv2", "get-account"):
+                return {"SendingEnabled": False, "ProductionAccessEnabled": False}, ""
+            if operation == ("sesv2", "get-email-identity"):
+                return {"VerificationStatus": "PENDING",
+                        "VerifiedForSendingStatus": False}, ""
+            if operation == ("ses", "describe-active-receipt-rule-set"):
+                return {}, ""
+            if operation == ("ses", "describe-receipt-rule-set"):
+                return {"Rules": []}, ""
+            self.fail("Unexpected AWS operation")
+
+        output = io.StringIO()
+        with (patch.object(install, "aws_run", side_effect=fake_aws),
+              patch.object(install, "preflight_tools", return_value=[]),
+              patch.object(install.shutil, "which", return_value="/usr/bin/aws"),
+              redirect_stdout(output)):
+            self.assertFalse(install.run_preflight(cfg))
+        message = output.getvalue()
+        for label in ("[ACTION] SES sending access",
+                      "[ACTION] SES sender identity",
+                      "[ACTION] SES sandbox administrator recipient"):
+            self.assertIn(label, message)
+        self.assertIn("[LATER] Active SES rule set", message)
+
+    def test_receiving_preflight_marks_overlapping_and_overbroad_rules_for_review(self):
+        from unittest.mock import patch
+        cfg = configured()
+        # Existing active rule must not be displaced by switching rule sets.
+        calls = []
+
+        def fake_aws(_cfg, *args, allow_error=False):
+            calls.append(args[:2])
+            if args[:2] == ("sesv2", "get-email-identity"):
+                return {"VerificationStatus": "SUCCESS"}, ""
+            if args[:2] == ("ses", "describe-active-receipt-rule-set"):
+                return {"Metadata": {"Name": "other-app"},
+                        "Rules": [{"Name": "catchall", "Enabled": True,
+                                   "Recipients": []}]}, ""
+            if args[:2] == ("ses", "describe-receipt-rule-set"):
+                return {"Rules": [{"Name": cfg["email"]["receipt_rule_name"],
+                                   "Enabled": True,
+                                   "Recipients": ["fake.tld"]}]}, ""
+            self.fail("Unexpected AWS operation")
+
+        with patch.object(install, "aws_run", side_effect=fake_aws):
+            rows = install.preflight_receiving(cfg)
+        states = {name: state for name, state, _ in rows}
+        self.assertEqual(states["Active SES rule set"], "ACTION")
+        self.assertEqual(states["Intended SES receipt rule"], "ACTION")
+        self.assertEqual(states["SES rule-order overlap"], "ACTION")
+        self.assertEqual(calls.count(("ses", "describe-active-receipt-rule-set")), 1)
+
+
+    def test_receiving_blockers_do_not_prevent_first_login(self):
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        cfg = configured()
+        output = io.StringIO()
+
+        def fake_aws(_cfg, *args, allow_error=False):
+            if args[:2] == ("sts", "get-caller-identity"):
+                return {"Account": cfg["aws"]["account_id"]}, ""
+            if args[:2] == ("sesv2", "get-account"):
+                return {"SendingEnabled": True, "ProductionAccessEnabled": True}, ""
+            if args[:2] == ("sesv2", "get-email-identity"):
+                return {"VerificationStatus": "SUCCESS",
+                        "VerifiedForSendingStatus": True}, ""
+            if args[:2] == ("ses", "describe-active-receipt-rule-set"):
+                return {"Metadata": {"Name": "other-app"},
+                        "Rules": [{"Name": "all", "Enabled": True,
+                                   "Recipients": []}]}, ""
+            if args[:2] == ("ses", "describe-receipt-rule-set"):
+                return {"Rules": []}, ""
+            self.fail("Unexpected AWS operation")
+
+        with (patch.object(install, "aws_run", side_effect=fake_aws),
+              patch.object(install, "preflight_tools", return_value=[]),
+              patch.object(install.shutil, "which", return_value="/usr/bin/aws"),
+              redirect_stdout(output)):
+            self.assertTrue(install.run_preflight(cfg))
+        self.assertIn("[ACTION] Active SES rule set:", output.getvalue())
+        self.assertIn("Receiving: Manual review required", output.getvalue())
+        self.assertIn("First login: No detected blockers", output.getvalue())
+
+    def test_permission_failure_is_unknown_and_raw_errors_never_printed(self):
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        cfg = configured()
+        leaked = "AccessDenied: admin@private.example secret"
+        output = io.StringIO()
+
+        def fake_aws(_cfg, *args, allow_error=False):
+            if args[:2] == ("sts", "get-caller-identity"):
+                return {"Account": cfg["aws"]["account_id"]}, ""
+            return {}, leaked
+
+        with (patch.object(install, "aws_run", side_effect=fake_aws),
+              patch.object(install, "preflight_tools", return_value=[]),
+              patch.object(install.shutil, "which", return_value="/usr/bin/aws"),
+              redirect_stdout(output)):
+            self.assertFalse(install.run_preflight(cfg))
+        self.assertIn("[UNKNOWN] SES sender identity:", output.getvalue())
+        self.assertIn("[UNKNOWN] Active SES receipt rules:", output.getvalue())
+        self.assertNotIn(leaked, output.getvalue())
+        self.assertNotIn("admin@private.example", output.getvalue())
+
     def test_status_uses_only_read_only_aws_calls_and_suggests_first_step(self):
         from unittest.mock import patch
 

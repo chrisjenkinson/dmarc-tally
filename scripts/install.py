@@ -717,9 +717,294 @@ def show_summary(cfg: dict, stacks: dict) -> None:
     print("Configuration and stack outputs are not proof of successful mail or alarm delivery.")
 
 
+
+# Read-only pre-login checks use the existing AWS CLI adapter and never
+# change deployed resources. Each diagnostic has an explicit next step.
+def preflight_result(name: str, state: str, action: str) -> tuple[str, str, str]:
+    return name, state, action
+
+
+def probe_aws(cfg: dict, service: str, operation: str, *args: str) -> dict | None:
+    """Bounded read-only AWS lookup, never exposing CLI stderr or responses."""
+    try:
+        data, error = aws_run(
+            cfg, service, operation, *args,
+            "--cli-connect-timeout", "5", "--cli-read-timeout", "10",
+            allow_error=True,
+        )
+    except InstallError:
+        return None
+    return data if not error and isinstance(data, dict) else None
+
+
+def preflight_tools() -> list[tuple[str, str, str]]:
+    """Current install method is a local source build (no release bundles)."""
+    checks = []
+    if sys.version_info < (3, 11):
+        checks.append(preflight_result(
+            "Python", "ACTION", "Install Python 3.11 or later."))
+    else:
+        checks.append(preflight_result("Python", "READY", "Python 3.11+ is available."))
+    for name, executable in (("Git", "git"), ("AWS CLI", "aws"),
+                             ("Rust/Cargo", "cargo"), ("Zig", "zig")):
+        state = "READY" if shutil.which(executable) else "ACTION"
+        checks.append(preflight_result(
+            name, state,
+            "Available." if state == "READY" else
+            f"Install {name} for the current source-build installation method."))
+    if shutil.which("aws"):
+        try:
+            aws_version = subprocess.run(
+                ["aws", "--version"], capture_output=True, text=True,
+                timeout=8, check=False,
+            )
+            cli_v2 = (aws_version.returncode == 0 and
+                      "aws-cli/2." in (aws_version.stdout + " " + aws_version.stderr))
+        except (OSError, subprocess.TimeoutExpired):
+            cli_v2 = False
+        if not cli_v2:
+            checks.append(preflight_result(
+                "AWS CLI version", "ACTION",
+                "Install AWS CLI v2, which is required by this installer."))
+    if shutil.which("cargo"):
+        try:
+            result = subprocess.run(
+                ["cargo", "lambda", "--version"], capture_output=True,
+                text=True, timeout=8, check=False,
+            )
+            available = result.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            available = False
+    else:
+        available = False
+    checks.append(preflight_result(
+        "cargo-lambda", "READY" if available else "ACTION",
+        "Available." if available else
+        "Install cargo-lambda before running the source-build installer."))
+    return checks
+
+
+def verified_ses_identity(value: dict | None) -> bool:
+    return bool(value is not None and value.get("VerificationStatus") == "SUCCESS"
+                and value.get("VerifiedForSendingStatus") is True)
+
+
+def receives_for_rule(rule: dict, address: str) -> bool:
+    """Whether a receipt rule could match the intended SMTP recipient."""
+    recipients = rule.get("Recipients") or []
+    if not recipients:
+        return True  # A rule without recipients accepts every verified domain.
+    domain = address.rsplit("@", 1)[-1]
+    return any(isinstance(item, str) and
+               item.lower().rstrip(".") in (address.lower(), domain.lower())
+               for item in recipients)
+
+
+def preflight_receiving(cfg: dict) -> list[tuple[str, str, str]]:
+    """Inspect existing rule sets without activating/changing SES."""
+    expected_set = cfg["email"]["receipt_rule_set"]
+    expected_rule = cfg["email"]["receipt_rule_name"]
+    address = cfg["email"]["receiving"]
+    checks = []
+    receiving_identity = probe_aws(
+        cfg, "sesv2", "get-email-identity", "--email-identity",
+        address.rsplit("@", 1)[-1],
+    )
+    if receiving_identity is None:
+        checks.append(preflight_result(
+            "SES receiving identity", "UNKNOWN",
+            "Confirm the dedicated receiving domain is verified in SES in this region; "
+            "inspect identity/read permissions if the lookup failed."))
+    elif receiving_identity.get("VerificationStatus") == "SUCCESS":
+        checks.append(preflight_result(
+            "SES receiving identity", "READY", "Dedicated receiving identity verified."))
+    else:
+        checks.append(preflight_result(
+            "SES receiving identity", "LATER",
+            "Verify the dedicated SES receiving domain before activating intake."))
+
+    active = probe_aws(cfg, "ses", "describe-active-receipt-rule-set")
+    if active is None:
+        checks.append(preflight_result(
+            "Active SES receipt rules", "UNKNOWN",
+            "Check SES receiving support, permissions and the active rule set in this region."))
+        return checks
+
+    active_set = (active.get("Metadata") or {}).get("Name")
+    active_rules = active.get("Rules") or []
+    if not isinstance(active_rules, list):
+        active_rules = []
+    if active_set is not None and active_set != expected_set:
+        checks.append(preflight_result(
+            "Active SES rule set", "ACTION",
+            "A different receipt rule set is active. Review existing receivers before "
+            "any activation; never replace an unrelated rule set automatically."))
+    elif active_set is None:
+        checks.append(preflight_result(
+            "Active SES rule set", "LATER",
+            "No receipt rule set is active. Review existing rules before separately "
+            "approving activation."))
+    else:
+        checks.append(preflight_result(
+            "Active SES rule set", "READY",
+            "The configured receipt rule set is active; rule and delivery still need testing."))
+
+    rules = active_rules
+    if active_set != expected_set:
+        target = probe_aws(
+            cfg, "ses", "describe-receipt-rule-set",
+            "--rule-set-name", expected_set,
+        )
+        if target is None:
+            checks.append(preflight_result(
+                "Intended SES rule set", "UNKNOWN",
+                "Confirm the configured receipt rule set exists and can be described. "
+                "It must exist before provisioning the disabled receiving rule."))
+            return checks
+        rules = target.get("Rules") or []
+        if not isinstance(rules, list):
+            rules = []
+
+    match = next((rule for rule in rules
+                  if isinstance(rule, dict) and rule.get("Name") == expected_rule), None)
+    if match is None:
+        checks.append(preflight_result(
+            "Intended SES receipt rule", "LATER",
+            "Create the exact-recipient rule disabled through a reviewed receiving-stack "
+            "change set; do not redirect DMARC rua yet."))
+    elif match.get("Recipients") != [address]:
+        checks.append(preflight_result(
+            "Intended SES receipt rule", "ACTION",
+            "The existing rule does not match exactly the configured recipient. "
+            "Review its scope before changing or enabling it."))
+    else:
+        checks.append(preflight_result(
+            "Intended SES receipt rule", "READY" if match.get("Enabled") else "LATER",
+            "Configured exact recipient is enabled; confirm S3 destination and actual mail flow."
+            if match.get("Enabled") else
+            "Exact-recipient rule exists but is disabled; separately approve activation "
+            "only after checking DNS, rule ordering and delivery impact."))
+
+    # Rule sets run in order. Earlier recipient-wide/domain rules may
+    # intercept messages; do not declare them conflicts without inspection.
+    before = active_rules if active_set != expected_set else rules[:rules.index(match)] if match in rules else rules
+    if any(isinstance(rule, dict) and rule.get("Enabled") is True
+           and receives_for_rule(rule, address) for rule in before):
+        checks.append(preflight_result(
+            "SES rule-order overlap", "ACTION",
+            "An enabled earlier/active rule could also match the reporting address. "
+            "Review actions and ordering before activating the intended rule."))
+    else:
+        checks.append(preflight_result(
+            "SES rule-order overlap", "READY",
+            "No enabled preceding rule matches the reporting recipient in the inspected set."))
+    return checks
+
+
+def run_preflight(cfg: dict) -> bool:
+    """Login prerequisites determine exit code; receiving is advisory."""
+    checks = preflight_tools()
+    receiving_checks = []
+    if not shutil.which("aws"):
+        checks.append(preflight_result(
+            "AWS account/region", "UNKNOWN",
+            "Install/configure AWS CLI v2, then check the AWS profile and region."))
+    else:
+        try:
+            verify_account(cfg)  # Explicitly fail closed on wrong account.
+        except InstallError:
+            checks.append(preflight_result(
+                "AWS account/region", "ACTION",
+                "Correct AWS profile/account credentials or region; do not deploy "
+                "until the configured account matches STS."))
+        else:
+            checks.append(preflight_result(
+                "AWS account/region", "READY",
+                "STS identity matches the configured account in the selected region."))
+            account = probe_aws(cfg, "sesv2", "get-account")
+            if account is None:
+                checks.append(preflight_result(
+                    "SES sending access", "UNKNOWN",
+                    "Check SES access/permissions in the configured region."))
+            elif account.get("SendingEnabled") is False:
+                checks.append(preflight_result(
+                    "SES sending access", "ACTION",
+                    "SES sending is disabled in this region. Resolve the account restriction."))
+            elif account.get("SendingEnabled") is True:
+                checks.append(preflight_result(
+                    "SES sending access", "READY",
+                    "SES sending is enabled for this region."))
+            else:
+                checks.append(preflight_result(
+                    "SES sending access", "UNKNOWN",
+                    "SES did not return an explicit sending-enabled status."))
+
+            sender = probe_aws(
+                cfg, "sesv2", "get-email-identity", "--email-identity",
+                cfg["email"]["sender_identity"],
+            )
+            checks.append(preflight_result(
+                "SES sender identity",
+                "READY" if verified_ses_identity(sender)
+                else "UNKNOWN" if sender is None else "ACTION",
+                "Configured sending identity is verified."
+                if verified_ses_identity(sender) else
+                "Verify the configured sending identity in this SES region; "
+                "check identity permissions if the lookup was unavailable."))
+
+            if account is not None and account.get("ProductionAccessEnabled") is False:
+                admin = cfg["email"]["administrator"]
+                exact = probe_aws(
+                    cfg, "sesv2", "get-email-identity", "--email-identity", admin,
+                )
+                parent = None if verified_ses_identity(exact) else probe_aws(
+                    cfg, "sesv2", "get-email-identity", "--email-identity",
+                    admin.rsplit("@", 1)[-1],
+                )
+                verified = verified_ses_identity(exact) or verified_ses_identity(parent)
+                checks.append(preflight_result(
+                    "SES sandbox administrator recipient",
+                    "READY" if verified else "ACTION",
+                    "SES is in the sandbox, but a verified identity covers the administrator."
+                    if verified else
+                    "SES is in the sandbox. Verify the administrator recipient or its SES "
+                    "domain identity, or request production access before first login."))
+            elif account is not None and account.get("ProductionAccessEnabled") is True:
+                checks.append(preflight_result(
+                    "SES sandbox administrator recipient", "READY",
+                    "SES production sending access is enabled for this region."))
+            else:
+                checks.append(preflight_result(
+                    "SES sandbox administrator recipient", "UNKNOWN",
+                    "Confirm whether SES is in sandbox mode and whether the "
+                    "administrator recipient needs verification."))
+
+            receiving_checks = preflight_receiving(cfg)
+            checks.extend(receiving_checks)
+
+    print("DMARC Tally pre-login preflight (read-only; no email sent)")
+    print("Region: " + cfg["aws"]["region"])
+    for name, state, action in checks:
+        print(f"  [{state}] {name}: {action}")
+    login_checks = checks[:-len(receiving_checks)] if receiving_checks else checks
+    login_issue = any(state in ("ACTION", "UNKNOWN") for _, state, _ in login_checks)
+    receiving_issue = any(state in ("ACTION", "UNKNOWN")
+                          for _, state, _ in receiving_checks)
+    print("First login: " + (
+        "Action or manual verification required." if login_issue
+        else "No detected blockers for the initial login; test real delivery."
+    ))
+    print("Receiving: " + (
+        "Manual review required before activation." if receiving_issue
+        else "Follow remaining setup steps before activation/rua changes."
+    ))
+    print("Preflight does not modify SES, DNS or AWS, or prove mail delivery.")
+    return not login_issue
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Locally configured DMARC Tally installer")
-    parser.add_argument("command", choices=["init", "check", "status", "summary", "build", "upload", "plan", "apply"])
+    parser.add_argument("command", choices=["init", "check", "preflight", "status", "summary", "build", "upload", "plan", "apply"])
     parser.add_argument("component", nargs="?", choices=sorted(STACKS))
     parser.add_argument("--approve", help="Exact reviewed CloudFormation change-set ARN")
     parser.add_argument("--allow-public-edge", action="store_true",
@@ -731,6 +1016,9 @@ def main() -> None:
     cfg = load_config()
     if args.command == "check":
         print("Ignored local configuration is valid. No AWS calls were made.")
+    elif args.command == "preflight":
+        if not run_preflight(cfg):
+            sys.exit(1)
     elif args.command == "status":
         show_status(cfg, inspect_installation(cfg))
     elif args.command == "summary":
