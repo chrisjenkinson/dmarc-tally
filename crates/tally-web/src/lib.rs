@@ -3,3 +3,4 @@ pub mod auth_pages;
 pub mod http;
 pub mod pages;
 pub mod report_queries;
+pub mod setup;

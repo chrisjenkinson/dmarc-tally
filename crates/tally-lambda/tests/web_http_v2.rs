@@ -15,7 +15,10 @@ use tally_core::{
     ports::{Cursor, PersistOutcome, ReportPage, ReportRepository, StoreError},
 };
 use tally_lambda::web_event::handle_http_v2;
-use tally_web::http::SiteOrigin;
+use tally_web::{
+    http::SiteOrigin,
+    setup::{CheckState, SetupCheck, SetupInspector, SetupSnapshot},
+};
 
 const NOW: i64 = 1_800_000_000;
 const HOSTILE_TOKEN: &str = "very-private-token-should-not-be-echoed";
@@ -77,12 +80,31 @@ impl ReportRepository for ReportSpy {
     }
 }
 
+struct FakeSetup(AtomicUsize);
+
+#[async_trait]
+impl SetupInspector for FakeSetup {
+    async fn inspect(&self) -> SetupSnapshot {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        SetupSnapshot {
+            receiving_address: Some("reports@dmarc.example.com".into()),
+            monitored_domains: vec![DomainName::parse("example.com").unwrap()],
+            checks: vec![SetupCheck {
+                title: "SES receiving rule",
+                state: CheckState::NotVerified,
+                detail: "Not yet verified against SES.".into(),
+            }],
+        }
+    }
+}
+
 struct Fixture {
     admin: AdminEmail,
     store: InMemoryAuthenticationStore,
     sender: TestSender,
     entropy: TestEntropy,
     reports: ReportSpy,
+    setup: FakeSetup,
     domains: DomainSet,
     site: SiteOrigin,
 }
@@ -94,6 +116,7 @@ impl Default for Fixture {
             sender: TestSender::default(),
             entropy: TestEntropy(AtomicU8::new(1)),
             reports: ReportSpy::default(),
+            setup: FakeSetup(AtomicUsize::new(0)),
             domains: DomainSet::new(["example.com"]).unwrap(),
             site: SiteOrigin::parse("https://private.example").unwrap(),
         }
@@ -102,7 +125,16 @@ impl Default for Fixture {
 impl Fixture {
     async fn send(&self, input: &Value) -> Value {
         let auth = Authentication::new(&self.admin, &self.store, &self.sender, &self.entropy);
-        handle_http_v2(input, &auth, &self.reports, &self.domains, &self.site, NOW).await
+        handle_http_v2(
+            input,
+            &auth,
+            &self.reports,
+            &self.domains,
+            &self.site,
+            &self.setup,
+            NOW,
+        )
+        .await
     }
     fn token(&self) -> String {
         self.sender.0.lock().unwrap().last().unwrap().clone()
@@ -121,9 +153,38 @@ async fn missing_session_cannot_read_reports_even_with_a_hostile_host_header() {
     assert_eq!(response["headers"]["Cache-Control"], "no-store");
     assert_eq!(response["headers"]["Referrer-Policy"], "strict-origin");
     assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(status(&f.send(&event("GET", "/setup", "")).await), 303);
+    assert_eq!(f.setup.0.load(Ordering::SeqCst), 0);
     for path in ["/reports/abc", "/reports/abc/original"] {
         assert_eq!(status(&f.send(&event("GET", path, "")).await), 303);
     }
+    assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn authenticated_setup_can_be_inspected_without_report_queries() {
+    let f = Fixture::default();
+    f.send(&event("POST", "/auth/request", "email=admin%40example.com"))
+        .await;
+    let token = f.token();
+    let response = f
+        .send(&event("POST", "/auth/confirm", &format!("token={token}")))
+        .await;
+    let cookie = response["cookies"][0]
+        .as_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+    let mut request = event("GET", "/setup", "");
+    request["cookies"] = json!([cookie]);
+    let page = f.send(&request).await;
+    assert_eq!(status(&page), 200);
+    assert!(page["body"]
+        .as_str()
+        .unwrap()
+        .contains("reports@dmarc.example.com"));
+    assert_eq!(f.setup.0.load(Ordering::SeqCst), 1);
     assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
 }
 

@@ -12,7 +12,10 @@ use tally_core::{
     model::DateRange,
     ports::{Cursor, PersistOutcome, ReportPage, ReportRepository, StoreError},
 };
-use tally_web::http::{handle, Request, SiteOrigin};
+use tally_web::{
+    http::{handle, Request, SiteOrigin},
+    setup::{CheckState, SetupCheck, SetupInspector, SetupSnapshot},
+};
 
 const NOW: i64 = 1_800_000_000;
 
@@ -74,12 +77,31 @@ impl ReportRepository for SpyReports {
     }
 }
 
+struct FakeSetup(AtomicUsize);
+
+#[async_trait]
+impl SetupInspector for FakeSetup {
+    async fn inspect(&self) -> SetupSnapshot {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        SetupSnapshot {
+            receiving_address: Some("aggregate@dmarc.example.com".into()),
+            monitored_domains: vec![DomainName::parse("example.com").unwrap()],
+            checks: vec![SetupCheck {
+                title: "SES receiving rule",
+                state: CheckState::NotVerified,
+                detail: "AWS receiving has not been checked.".into(),
+            }],
+        }
+    }
+}
+
 struct Fixture {
     admin: AdminEmail,
     store: InMemoryAuthenticationStore,
     email: SpySender,
     entropy: FakeEntropy,
     reports: SpyReports,
+    setup: FakeSetup,
     domains: DomainSet,
     site: SiteOrigin,
 }
@@ -91,6 +113,7 @@ impl Default for Fixture {
             email: SpySender::default(),
             entropy: FakeEntropy(AtomicU8::new(1)),
             reports: SpyReports::default(),
+            setup: FakeSetup(AtomicUsize::new(0)),
             domains: DomainSet::new(["example.com"]).unwrap(),
             site: SiteOrigin::parse("https://private.example").unwrap(),
         }
@@ -107,6 +130,7 @@ impl Fixture {
             &self.reports,
             &self.domains,
             &self.site,
+            &self.setup,
             now,
         )
         .await
@@ -162,13 +186,50 @@ fn configured_site_origin_rejects_open_redirects_credentials_or_insecure_urls() 
 #[tokio::test]
 async fn every_reporting_route_deny_access_before_any_repository_read() {
     let f = Fixture::default();
-    for route in ["/", "/reports/012345/detail", "/reports/abc/original"] {
+    for route in [
+        "/",
+        "/setup",
+        "/reports/012345/detail",
+        "/reports/abc/original",
+    ] {
         let response = f.request(Request::new("GET", route), NOW).await;
         assert_eq!(response.status, 303, "route: {route}");
         assert_eq!(response.header("Location"), Some("/auth/login"));
         assert!(!response.body.contains("Reporting organisations"));
         assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
+        assert_eq!(f.setup.0.load(Ordering::SeqCst), 0);
     }
+}
+
+#[tokio::test]
+async fn setup_page_is_protected_and_checked_only_on_explicit_authenticated_get() {
+    let f = Fixture::default();
+    let token = f.login().await;
+    let cookie = f.redeem(&token, NOW).await;
+    let credential = cookie.split(';').next().unwrap();
+
+    let mut query = Request::new("GET", "/setup");
+    query.cookie = Some(credential);
+    query.query = "unexpected=1";
+    assert_eq!(f.request(query, NOW).await.status, 400);
+    assert_eq!(f.setup.0.load(Ordering::SeqCst), 0);
+
+    let mut request = Request::new("GET", "/setup");
+    request.cookie = Some(credential);
+    let response = f.request(request, NOW).await;
+    assert_eq!(response.status, 200);
+    assert!(response.body.contains("aggregate@dmarc.example.com"));
+    assert!(response.body.contains("Not verified"));
+    assert_eq!(f.setup.0.load(Ordering::SeqCst), 1);
+    assert_eq!(f.reports.reads.load(Ordering::SeqCst), 0);
+
+    let mut expired = Request::new("GET", "/setup");
+    expired.cookie = Some(credential);
+    assert_eq!(
+        f.request(expired, NOW + SESSION_TTL_SECONDS).await.status,
+        303
+    );
+    assert_eq!(f.setup.0.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
