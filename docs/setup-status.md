@@ -17,14 +17,20 @@ The page distinguishes four states:
   Ready and must not expose raw AWS responses.
 
 The v1 page shows the configured receiving mailbox, monitored domains and
-setup steps. The initial host inspector marks all operational checks as
-**Not verified** deliberately: installation parameters alone prove nothing.
-The next small change will implement **on-demand, read-only SES inspections**
-via the same `SetupInspector` port: active receipt rule, correct recipient,
-S3 bucket/prefix and SES identity verification. These will not activate
-rules, send email, update DNS or create AWS resources. DNS MX / DMARC rua,
-true successful end-to-end delivery, and operational alarm testing require
-distinct evidence; until then, the UI will keep them Not verified.
+setup steps. On an authenticated visit to `/setup`, the host performs two
+read-only SES v2 `GetEmailIdentity` calls for the configured sender identity
+and the *exact* receiving address domain. These checks report verified
+identity state; a sending identity must also be enabled for sending.
+They never send email or change configuration. AWS API failures (including
+missing or inaccessible identity records) remain **Unable to check**, not
+Ready. Verification of a parent identity can apply to subdomains, so
+exact-domain verification status is not conclusive proof of mail delivery.
+
+The active receipt rule, exact recipient, S3 bucket/prefix and rule ordering
+still require an on-demand SES classic API inspector in a subsequent PR.
+DNS MX / DMARC rua, true successful end-to-end delivery and operational
+alarm testing require distinct evidence; until then, the UI marks them
+**Not verified**. A verified identity alone does not prove incoming delivery.
 
 `RECEIVING_ADDRESS` is provided to the web Lambda through the generic
 CloudFormation `ReceivingAddress` parameter and `scripts/install.py` from
@@ -36,6 +42,11 @@ The same setup concerns may be checked from a generic local CLI later, but
 do not create customer-facing monitoring history, new DynamoDB tables,
 scheduled polling or a separate setup aggregate for one administrator.
 
-No AWS or DNS changes are made by building this page. A green installation
+A reviewed future CloudFormation update is necessary to grant the web
+Lambda narrowly scoped `ses:GetEmailIdentity` for the configured sender and
+receiving-domain identities and to supply `SES_SENDER_IDENTITY`. Until
+deployed, the existing Lambda is unchanged.
+
+No AWS or DNS changes are made by merging this source change. A green installation
 badge must never be shown until individual checks are backed by real
 evidence.

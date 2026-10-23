@@ -127,6 +127,14 @@ Resources:
                     ses:Recipients: !Ref AdministratorEmail
                   'Null':
                     ses:Recipients: 'false'
+              - Sid: ReadConfiguredSesIdentityStatus
+                Effect: Allow
+                Action: ses:GetEmailIdentity
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${VerifiedSenderIdentity}'
+                  - !Sub
+                    - 'arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${ReceivingIdentityDomain}'
+                    - ReceivingIdentityDomain: !Select [1, !Split ['@', !Ref ReceivingAddress]]
               - Sid: WriteOnlyPrivateWebLogs
                 Effect: Allow
                 Action:
@@ -164,6 +172,7 @@ Resources:
           MONITORED_DOMAINS: !Ref MonitoredDomains
           ADMIN_EMAIL: !Ref AdministratorEmail
           SES_FROM_EMAIL: !Ref SenderEmail
+          SES_SENDER_IDENTITY: !Ref VerifiedSenderIdentity
           RECEIVING_ADDRESS: !Ref ReceivingAddress
           PUBLIC_ORIGIN: !Ref PublicOrigin
       Tags:
