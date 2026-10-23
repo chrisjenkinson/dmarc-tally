@@ -139,7 +139,7 @@ class ConfigurationTests(unittest.TestCase):
         from unittest.mock import patch, Mock
 
         def tool_version(command, **_kwargs):
-            return Mock(returncode=0, stdout=(
+            return Mock(returncode=0, stderr="", stdout=(
                 "aws-cli/2.38.0 Python/3.13" if command[0] == "aws"
                 else "cargo-lambda 1"))
         with (patch.object(install.shutil, "which", side_effect=lambda name:
@@ -161,7 +161,7 @@ class ConfigurationTests(unittest.TestCase):
         with (patch.object(install.shutil, "which", side_effect=lambda name:
                     "/usr/bin/" + name if name == "aws" else None),
               patch.object(install.subprocess, "run",
-                           return_value=Mock(returncode=0, stdout="aws-cli/1.45.0")),
+                           return_value=Mock(returncode=0, stdout="aws-cli/1.45.0", stderr="")),
               patch.object(install, "aws_run", side_effect=AssertionError("no AWS API"))):
             states = {name: state for name, state, _ in install.preflight_tools()}
         self.assertEqual(states["AWS CLI version"], "ACTION")
