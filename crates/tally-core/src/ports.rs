@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Mutex;
 
-use crate::identity::{DomainName, ReportIdentity, StoredReport};
+use crate::identity::{DomainName, ReportIdentity, ReportReference, StoredReport};
 use crate::model::DateRange;
 use async_trait::async_trait;
 
@@ -63,6 +63,13 @@ pub trait ReportRepository: Send + Sync {
     async fn get_report(
         &self,
         identity: &ReportIdentity,
+    ) -> Result<Option<StoredReport>, StoreError>;
+
+    /// Direct lookup by a verified, storage-neutral URL reference; adapters
+    /// must never scan the table or return incomplete reports for this path.
+    async fn get_report_by_reference(
+        &self,
+        reference: &ReportReference,
     ) -> Result<Option<StoredReport>, StoreError>;
 }
 
@@ -150,6 +157,19 @@ impl ReportRepository for InMemoryReportRepository {
             .lock()
             .map_err(|_| StoreError::Unavailable("Report repository lock poisoned".into()))?
             .get(&identity.digest_hex())
+            .cloned())
+    }
+
+    async fn get_report_by_reference(
+        &self,
+        reference: &ReportReference,
+    ) -> Result<Option<StoredReport>, StoreError> {
+        Ok(self
+            .completed
+            .lock()
+            .map_err(|_| StoreError::Unavailable("Report repository lock poisoned".into()))?
+            .get(&reference.digest)
+            .filter(|report| reference.matches(&report.identity))
             .cloned())
     }
 }

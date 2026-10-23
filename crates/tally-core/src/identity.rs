@@ -100,6 +100,65 @@ impl ReportIdentity {
     }
 }
 
+/// A compact, source-independent direct-lookup reference. URL parts carry
+/// only a monitored domain, report period end and the deterministic digest.
+/// They do not expose raw MIME or DynamoDB keys.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReportReference {
+    pub domain: DomainName,
+    pub period_end: i64,
+    pub digest: String,
+}
+
+impl ReportReference {
+    pub fn from_identity(identity: &ReportIdentity) -> Self {
+        Self {
+            domain: identity.domain.clone(),
+            period_end: identity.period_end,
+            digest: identity.digest_hex(),
+        }
+    }
+
+    pub fn parse_path(path: &str) -> Option<Self> {
+        let body = path.strip_prefix("/reports/")?;
+        let mut fields = body.split('/');
+        let (domain, end, digest) = (fields.next()?, fields.next()?, fields.next()?);
+        if fields.next().is_some()
+            || end.len() != 20
+            || !end.bytes().all(|v| v.is_ascii_digit())
+            || digest.len() != 64
+            || !digest.bytes().all(|v| v.is_ascii_digit() || (b'a'..=b'f').contains(&v))
+        {
+            return None;
+        }
+        let canonical = DomainName::parse(domain).ok()?;
+        if canonical.as_str() != domain {
+            return None;
+        }
+        let period_end = end.parse::<i64>().ok()?;
+        Some(Self {
+            domain: canonical,
+            period_end,
+            digest: digest.to_owned(),
+        })
+    }
+
+    pub fn path(&self) -> String {
+        format!(
+            "/reports/{}/{:020}/{}",
+            self.domain.as_str(),
+            self.period_end,
+            self.digest
+        )
+    }
+
+    pub fn matches(&self, identity: &ReportIdentity) -> bool {
+        self.domain == identity.domain
+            && self.period_end == identity.period_end
+            && self.digest == identity.digest_hex()
+    }
+}
+
 fn update_string(hasher: &mut Sha256, data: &str) {
     hasher.update((data.len() as u64).to_be_bytes());
     hasher.update(data.as_bytes());
