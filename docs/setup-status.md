@@ -52,6 +52,16 @@ manual S3 uploads can also be processed. End-to-end delivery remains
 Not verified until a controlled real email is sent and its receipt is
 confirmed separately.
 
+DNS checks use the system resolver on authenticated page requests (bounded,
+read-only MX/TXT DNS queries, no third-party DoH endpoint). They inspect the
+receiving hostname's MX against the expected regional SES inbound endpoint;
+each monitored domain's explicitly published DMARC `rua` address; and,
+where relevant, the destination `._report._dmarc.` authorisation TXT.
+When a policy might be inherited or organisational-domain equivalence is
+uncertain, a missing record is **Not verified**, not an assertion of
+misconfiguration. NXDOMAIN/timeout/resolver failures are distinguished from
+evidence of an actually wrong published record. No DNS writes occur.
+
 A **Ready** receipt-rule status proves only these observed settings.
 Earlier rules, IAM role permission issues, bucket policy, DNS MX/rua,
 S3 EventBridge notification routing and ingestion can still prevent delivery.

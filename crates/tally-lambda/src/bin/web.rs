@@ -12,6 +12,7 @@ use serde_json::Value;
 use tally_aws::{
     auth_store::DynamoAuthenticationStore,
     dynamo_repository::DynamoReportRepository,
+    dns::{inspect_dns, DnsState},
     entropy::OsTokenSource,
     ses_email::{SesEmailSender, SignInOrigin},
     ses_identity::{IdentityEvidence, SesIdentityReader},
@@ -70,6 +71,12 @@ impl SetupInspector for SesSetupInspector {
             None => None,
         };
         let sending = self.identities.inspect(&self.sender_identity, true).await;
+        let region = std::env::var("AWS_REGION").unwrap_or_default();
+        let dns_checks = inspect_dns(
+            self.receiving_address.as_deref(),
+            self.domains.domains().iter().map(|domain| domain.as_str().to_owned()).collect(),
+            &region,
+        ).await;
         let processing = self.evidence.inspect(&self.intake_bucket).await;
         let (processing_state, processing_detail) = match processing {
             ProcessingEvidence::Recent => (
@@ -147,10 +154,7 @@ impl SetupInspector for SesSetupInspector {
                 "SES could not verify the sending identity status. Check read permissions, identity existence and regional configuration.",
             ),
         };
-        SetupSnapshot {
-            receiving_address: self.receiving_address.clone(),
-            monitored_domains: self.domains.domains().iter().cloned().collect(),
-            checks: vec![
+        let mut checks = vec![
                 SetupCheck {
                     title: "SES receiving rule and S3 destination",
                     state: receipt_state,
@@ -166,11 +170,7 @@ impl SetupInspector for SesSetupInspector {
                     state: sending_state,
                     detail: sending_detail.into(),
                 },
-                SetupCheck {
-                    title: "MX and DMARC DNS",
-                    state: CheckState::NotVerified,
-                    detail: "Receiving MX, monitored-domain rua and external authorization have not been checked.".into(),
-                },
+
                 SetupCheck {
                     title: "DMARC email processing",
                     state: processing_state,
@@ -186,7 +186,23 @@ impl SetupInspector for SesSetupInspector {
                     state: CheckState::NotVerified,
                     detail: "SNS subscription and alarm delivery have not been verified.".into(),
                 },
-            ],
+            ];
+        for dns in dns_checks {
+            checks.push(SetupCheck {
+                title: dns.title,
+                state: match dns.state {
+                    DnsState::Ready => CheckState::Ready,
+                    DnsState::ActionRequired => CheckState::ActionRequired,
+                    DnsState::NotVerified => CheckState::NotVerified,
+                    DnsState::UnableToCheck => CheckState::UnableToCheck,
+                },
+                detail: dns.detail,
+            });
+        }
+        SetupSnapshot {
+            receiving_address: self.receiving_address.clone(),
+            monitored_domains: self.domains.domains().iter().cloned().collect(),
+            checks,
         }
     }
 }
