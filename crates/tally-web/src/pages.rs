@@ -4,9 +4,16 @@
 //! for authentication and data-access checks before invoking a renderer.
 
 use tally_core::{
-    identity::{DomainName, StoredReport},
+    identity::{DomainName, ReportReference, StoredReport},
     reporting::Summary,
 };
+
+#[derive(Clone)]
+pub struct RecentReport {
+    pub reference: ReportReference,
+    pub organisation: String,
+    pub messages: u64,
+}
 
 #[derive(Clone)]
 pub struct ReportViewModel {
@@ -14,6 +21,7 @@ pub struct ReportViewModel {
     pub configured_domains: Vec<DomainName>,
     pub days: u8,
     pub summary: Summary,
+    pub recent_reports: Vec<RecentReport>,
 }
 
 #[derive(Clone)]
@@ -147,6 +155,25 @@ pub fn render_report_page(view: &ReportViewModel) -> String {
             ));
         }
         html.push_str("</tbody></table></div></section>");
+        if !view.recent_reports.is_empty() {
+            html.push_str("<section><h2>Recent reports</h2><p class=\"muted\">Showing up to 20 reports in this period. Summary totals above include all reports.</p>");
+            html.push_str("<div class=\"table-scroll\"><table><caption>Recent individual DMARC reports</caption>");
+            html.push_str("<thead><tr><th scope=\"col\">Reporting organisation</th><th scope=\"col\">Domain</th><th scope=\"col\">Period end (UTC)</th><th scope=\"col\">Messages</th></tr></thead><tbody>");
+            for report in &view.recent_reports {
+                let date = time::OffsetDateTime::from_unix_timestamp(report.reference.period_end)
+                    .map(|d| format!("{:04}-{:02}-{:02}", d.year(), u8::from(d.month()), d.day()))
+                    .unwrap_or_else(|_| "Unknown".to_owned());
+                html.push_str(&format!(
+                    "<tr><th scope=\"row\"><a href=\"{}\">{}</a></th><td>{}</td><td>{}</td><td>{}</td></tr>",
+                    report.reference.path(),
+                    escape_html(&report.organisation),
+                    escape_html(report.reference.domain.as_str()),
+                    date,
+                    report.messages,
+                ));
+            }
+            html.push_str("</tbody></table></div></section>");
+        }
     }
     finish_page(html)
 }
@@ -154,7 +181,7 @@ pub fn render_report_page(view: &ReportViewModel) -> String {
 pub fn render_report_detail(view: &ReportDetailViewModel) -> String {
     let r = &view.report;
     let mut html = start_page("Report details");
-    html.push_str("<h2>Report details</h2>");
+    html.push_str("<h2>Report details</h2><p><a href=\"/\">Back to reports</a></p>");
     html.push_str(r#"<form method="post" action="/auth/logout"><button type="submit">Sign out</button></form>"#);
     html.push_str(&format!(
         "<p><strong>Reporting organisation:</strong> {}<br><strong>Domain:</strong> {}<br><strong>Report ID:</strong> {}</p>",

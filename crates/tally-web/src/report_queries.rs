@@ -8,16 +8,17 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use tally_core::{
-    identity::{DomainName, DomainSet},
+    identity::{DomainName, DomainSet, ReportReference},
     model::DateRange,
     ports::{Cursor, ReportRepository, StoreError},
     reporting::{summarise, Summary, Traffic},
 };
 
-use crate::pages::ReportViewModel;
+use crate::pages::{RecentReport, ReportViewModel};
 
 const MAX_QUERY_BYTES: usize = 2_048;
 const MAX_PAGES_PER_DOMAIN: usize = 100;
+const MAX_RECENT_REPORTS: usize = 20;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OverviewSelection {
@@ -161,6 +162,7 @@ pub async fn load_overview(
         None => monitored.domains().iter().cloned().collect(),
     };
     let mut summary = Summary::default();
+    let mut recent_reports: Vec<RecentReport> = Vec::new();
 
     for domain in domains {
         let mut cursor: Option<Cursor> = None;
@@ -171,6 +173,20 @@ pub async fn load_overview(
             let page = repository
                 .list_for_domain(&domain, range.clone(), cursor)
                 .await?;
+            for report in &page.reports {
+                recent_reports.push(RecentReport {
+                    reference: ReportReference::from_identity(&report.identity),
+                    organisation: report.identity.organisation.clone(),
+                    messages: report.report.records.iter().map(|record| record.count).sum(),
+                });
+            }
+            // Bound list memory while preserving all reports for aggregate totals.
+            recent_reports.sort_by(|a, b| {
+                b.reference.period_end.cmp(&a.reference.period_end)
+                    .then_with(|| a.reference.domain.cmp(&b.reference.domain))
+                    .then_with(|| a.reference.digest.cmp(&b.reference.digest))
+            });
+            recent_reports.truncate(MAX_RECENT_REPORTS);
             merge_summary(&mut summary, summarise(page.reports));
 
             match page.next_cursor {
@@ -196,6 +212,7 @@ pub async fn load_overview(
         configured_domains: monitored.domains().iter().cloned().collect(),
         days: selection.days,
         summary,
+        recent_reports,
     })
 }
 
