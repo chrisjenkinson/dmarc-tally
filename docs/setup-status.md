@@ -86,6 +86,16 @@ intake bucket parameters from the ignored local configuration plus ingestion
 stack outputs. Until a separately approved deployment, the existing Lambda
 is unchanged.
 
+The operational-notifications section checks the one configured SNS topic
+for a **confirmed email subscription** and checks that all four expected
+ingestion CloudWatch metric alarms exist, have actions enabled, and include
+that exact topic in their alarm actions. Missing/pending subscriptions and
+miswired alarms are Action required. AWS read failures are Unable to check.
+The two read permissions are limited to that topic and the ingestion stack's
+alarm-name prefix. No SNS Publish, alarm-state changes or email tests run.
+A separate alarm **delivery test** remains Not verified until an approved
+real test has been observed by the administrator.
+
 No AWS or DNS changes are made by merging this source change. A green installation
 badge must never be shown until individual checks are backed by real
 evidence.

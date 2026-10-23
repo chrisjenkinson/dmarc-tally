@@ -82,7 +82,9 @@ class ConfigurationTests(unittest.TestCase):
         cfg = configured()
         outputs = {
             "artifacts": {"ArtifactBucket": "private-artifact-bucket"},
-            "ingestion": {"ReportsTable": "reports-table", "IntakeBucket": "private-intake"},
+            "ingestion": {"ReportsTable": "reports-table", "IntakeBucket": "private-intake",
+                          "FailureAlertTopicArn": "arn:aws:sns:ap-southeast-2:123456789012:alerts",
+                          "FailureAlarmNames": "alarm-one,alarm-two,alarm-three,alarm-four"},
             "web": {"WebFunctionArn": "arn:aws:lambda:ap-southeast-2:123456789012:function:web"},
         }
         release = {
@@ -96,6 +98,8 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(ingest["NotificationEmail"], "alerts@fake.tld")
         self.assertEqual(install.parameters("web", cfg, outputs, release)["PublicOrigin"],
                          install.BOOTSTRAP_ORIGIN)
+        self.assertEqual(install.parameters("web", cfg, outputs, release)["FailureAlarmNames"],
+                         "alarm-one,alarm-two,alarm-three,alarm-four")
         outputs["edge"] = {"WebHttpsOrigin": "https://api-id.execute-api.ap-southeast-2.amazonaws.com"}
         self.assertEqual(install.parameters("web", cfg, outputs, release)["PublicOrigin"],
                          outputs["edge"]["WebHttpsOrigin"])

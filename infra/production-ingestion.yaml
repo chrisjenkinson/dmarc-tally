@@ -417,3 +417,11 @@ Outputs:
   FailureAlertTopicArn:
     Description: SNS topic used by the four generic failure alarms; subscribe to receive notices.
     Value: !Ref FailureAlertTopic
+  FailureAlarmNames:
+    Description: Four ingestion failure alarm names for read-only setup diagnostics.
+    Value: !Join
+      - ','
+      - - !Ref EventBridgeFailureBacklogAlarm
+        - !Ref LambdaFailureBacklogAlarm
+        - !Ref EventBridgeDlqDeliveryFailureAlarm
+        - !Ref LambdaDestinationDeliveryFailureAlarm
