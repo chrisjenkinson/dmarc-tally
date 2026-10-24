@@ -6,6 +6,20 @@ to sign-in **before** an inspection is run. Only an authenticated, explicit
 page request invokes the `SetupInspector` port; ordinary report views do
 not poll external services.
 
+Checks are grouped by **verification method**, independently of their status:
+
+- **Automatic checks** are read-only AWS, DNS and recent-processing
+  inspections performed when the authenticated page is refreshed. Ready
+  means the observed condition passed, not that all mail is healthy.
+- **Operator verification** covers real-world tests requiring explicit
+  confirmation. The end-to-end email-delivery attestation is independent
+  of the recent S3 processing marker. Alarm-notification delivery remains
+  Not verified until a real alarm test has been confirmed.
+
+The page counts automatically detected problems and unavailable checks
+separately from operator checks awaiting confirmation. No scheduled
+polling, separate setup database or extra AWS permissions are introduced.
+
 The page distinguishes four states:
 
 - **Ready**: the particular listed check has positive evidence. It does not

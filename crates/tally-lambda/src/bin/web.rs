@@ -27,7 +27,7 @@ use tally_core::{
 use tally_lambda::web_event::handle_http_v2;
 use tally_web::{
     http::SiteOrigin,
-    setup::{CheckState, SetupCheck, SetupInspector, SetupSnapshot},
+    setup::{CheckState, SetupCheck, SetupInspector, SetupSnapshot, VerificationMethod},
 };
 
 #[derive(Clone)]
@@ -166,27 +166,32 @@ impl SetupInspector for SesSetupInspector {
         let mut checks = vec![
                 SetupCheck {
                     title: "SES receiving rule and S3 destination",
+                    method: VerificationMethod::Automatic,
                     state: receipt_state,
                     detail: receipt_detail.into(),
                 },
                 SetupCheck {
                     title: "SES receiving identity",
+                    method: VerificationMethod::Automatic,
                     state: receiving_state,
                     detail: receiving_detail.into(),
                 },
                 SetupCheck {
                     title: "SES sending identity",
+                    method: VerificationMethod::Automatic,
                     state: sending_state,
                     detail: sending_detail.into(),
                 },
 
                 SetupCheck {
                     title: "DMARC email processing",
+                    method: VerificationMethod::Automatic,
                     state: processing_state,
                     detail: processing_detail.into(),
                 },
                 SetupCheck {
                     title: "End-to-end report delivery",
+                    method: VerificationMethod::Operator,
                     state: match delivery {
                         DeliveryEvidence::OperatorConfirmed => CheckState::Ready,
                         DeliveryEvidence::NotVerified => CheckState::NotVerified,
@@ -203,6 +208,7 @@ impl SetupInspector for SesSetupInspector {
                 },
                 SetupCheck {
                     title: "SNS failure email subscription",
+                    method: VerificationMethod::Automatic,
                     state: match alert_checks.subscription {
                         AlertState::Ready => CheckState::Ready,
                         AlertState::ActionRequired => CheckState::ActionRequired,
@@ -212,6 +218,7 @@ impl SetupInspector for SesSetupInspector {
                 },
                 SetupCheck {
                     title: "Failure alarm configuration",
+                    method: VerificationMethod::Automatic,
                     state: match alert_checks.alarms {
                         AlertState::Ready => CheckState::Ready,
                         AlertState::ActionRequired => CheckState::ActionRequired,
@@ -221,6 +228,7 @@ impl SetupInspector for SesSetupInspector {
                 },
                 SetupCheck {
                     title: "Alarm notification delivery test",
+                    method: VerificationMethod::Operator,
                     state: CheckState::NotVerified,
                     detail: "Alarm actions and a confirmed SNS subscription do not prove email arrived. Exercise an approved alarm test and confirm delivery separately.".into(),
                 },
@@ -228,6 +236,7 @@ impl SetupInspector for SesSetupInspector {
         for dns in dns_checks {
             checks.push(SetupCheck {
                 title: dns.title,
+                method: VerificationMethod::Automatic,
                 state: match dns.state {
                     DnsState::Ready => CheckState::Ready,
                     DnsState::ActionRequired => CheckState::ActionRequired,
