@@ -29,7 +29,8 @@ fn classify_delivery(input: &[u8], now: i64) -> DeliveryEvidence {
     let Ok(record) = serde_json::from_slice::<DeliveryConfirmation>(input) else {
         return DeliveryEvidence::UnableToCheck;
     };
-    if record.version != 1 || record.observed_at <= 0
+    if record.version != 1
+        || record.observed_at <= 0
         || record.verified_at < record.observed_at
         || record.verified_at > now + 300
     {
@@ -112,13 +113,24 @@ impl ProcessingEvidenceStore {
     /// A separate, explicit operator attestation of one controlled delivery
     /// test, not a claim of cryptographic SES object provenance.
     pub async fn inspect_delivery(&self, bucket: &str) -> DeliveryEvidence {
-        let output = match self.client.get_object().bucket(bucket).key(DELIVERY_MARKER).send().await {
+        let output = match self
+            .client
+            .get_object()
+            .bucket(bucket)
+            .key(DELIVERY_MARKER)
+            .send()
+            .await
+        {
             Ok(value) => value,
-            Err(error) if error.as_service_error().is_some_and(|e| e.is_no_such_key()) =>
-                return DeliveryEvidence::NotVerified,
+            Err(error) if error.as_service_error().is_some_and(|e| e.is_no_such_key()) => {
+                return DeliveryEvidence::NotVerified
+            }
             Err(_) => return DeliveryEvidence::UnableToCheck,
         };
-        if output.content_length().is_some_and(|length| length > MAX_BYTES as i64) {
+        if output
+            .content_length()
+            .is_some_and(|length| length > MAX_BYTES as i64)
+        {
             return DeliveryEvidence::UnableToCheck;
         }
         let mut reader = output.body.into_async_read().take(MAX_BYTES as u64 + 1);
@@ -175,13 +187,18 @@ mod tests {
     use super::{classify, classify_delivery, DeliveryEvidence, ProcessingEvidence};
     #[test]
     fn explicit_operator_attestation_must_be_valid() {
-        assert_eq!(classify_delivery(
-            br#"{"version":1,"observed_at":100,"verified_at":200}"#, 210
-        ), DeliveryEvidence::OperatorConfirmed);
-        assert_eq!(classify_delivery(
-            br#"{"version":1,"observed_at":300,"verified_at":200}"#, 210
-        ), DeliveryEvidence::UnableToCheck);
-        assert_eq!(classify_delivery(b"{}", 210), DeliveryEvidence::UnableToCheck);
+        assert_eq!(
+            classify_delivery(br#"{"version":1,"observed_at":100,"verified_at":200}"#, 210),
+            DeliveryEvidence::OperatorConfirmed
+        );
+        assert_eq!(
+            classify_delivery(br#"{"version":1,"observed_at":300,"verified_at":200}"#, 210),
+            DeliveryEvidence::UnableToCheck
+        );
+        assert_eq!(
+            classify_delivery(b"{}", 210),
+            DeliveryEvidence::UnableToCheck
+        );
     }
 
     #[test]
