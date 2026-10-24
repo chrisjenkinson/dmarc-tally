@@ -124,7 +124,7 @@ fn utc_time(epoch: i64) -> String {
 
 pub fn render_report_page(view: &ReportViewModel) -> String {
     let mut html = start_page("Overview");
-    html.push_str("<h2>DMARC overview</h2><p class=\"summary-note\">These are messages observed in DMARC reports, not a count of all email sent. A DMARC pass requires at least one aligned DKIM or SPF pass; a failure does not by itself mean abuse.</p>");
+    html.push_str("<h2>Report overview</h2><p class=\"summary-note\">These are messages observed in DMARC reports, not a count of all email sent. A DMARC pass requires at least one aligned DKIM or SPF pass; a failure does not by itself mean abuse.</p>");
     html.push_str(r#"<form method="post" action="/auth/logout"><button type="submit">Sign out</button></form>"#);
     html.push_str(r#"<form class="report-filter" method="get" action="/"><div><label for="domain">Domain</label><select name="domain" id="domain">"#);
     html.push_str(if view.selected_domain.is_none() {
