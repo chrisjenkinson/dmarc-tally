@@ -47,6 +47,15 @@ only `incoming/`, so this marker cannot trigger another import. The
 marker is retained independently of one-day MIME expiration and is not a
 customer-facing history.
 
+An absent evidence marker can appear as HTTP 403 rather than 404 when S3
+does not grant broad bucket listing. Only on a 403, the web Lambda checks
+absence with a one-result, exact-prefix `ListObjectsV2` call. IAM permits
+listing **only** `setup/last-captured.json` or
+`setup/end-to-end-confirmed.json` (with `max-keys=1`), never
+`incoming/`. A missing marker is **Not verified**; an existing but
+unreadable marker or a failed lookup is **Unable to check**. Readable
+markers never require listing.
+
 This is evidence of *processing*, **not** an SES-to-S3 delivery test:
 manual S3 uploads can also be processed. End-to-end delivery is Ready
 only after a **separate operator confirmation** of a controlled email test.
