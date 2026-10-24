@@ -90,14 +90,14 @@ pub fn render_setup_page(snapshot: &SetupSnapshot, checked_at: i64) -> String {
         })
         .count();
     if needs_action > 0 {
-        html.push_str(&format!("<p role=\"status\"><strong>{needs_action} automatic setup checks require action.</strong> Review the details below.</p>"));
+        html.push_str(&format!("<p role=\"status\"><strong>Automatic checks requiring action: {needs_action}.</strong> Review the details below.</p>"));
     }
     if unknown > 0 {
-        html.push_str(&format!("<p>{unknown} automatic checks remain unverified or unavailable. This does not mean incoming mail is broken.</p>"));
+        html.push_str(&format!("<p>Automatic checks unverified or unavailable: {unknown}. This does not mean incoming mail is broken.</p>"));
     }
     if operator_pending > 0 {
         html.push_str(&format!(
-            "<p>{operator_pending} operator checks await confirmation or further inspection.</p>"
+            "<p>Operator checks awaiting confirmation or review: {operator_pending}.</p>"
         ));
     }
 

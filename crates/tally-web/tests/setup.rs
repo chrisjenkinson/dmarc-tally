@@ -55,9 +55,9 @@ fn setup_page_shows_configured_address_monitored_domains_and_distinct_states() {
     assert!(html.contains("Inbound delivery"));
     assert!(html.contains("Refresh checks"));
     assert!(html.contains("UTC"));
-    assert!(html.contains("1 automatic setup checks require action"));
-    assert!(html.contains("1 automatic checks remain unverified or unavailable"));
-    assert!(html.contains("1 operator checks await confirmation"));
+    assert!(html.contains("Automatic checks requiring action: 1"));
+    assert!(html.contains("Automatic checks unverified or unavailable: 1"));
+    assert!(html.contains("Operator checks awaiting confirmation or review: 1"));
     assert!(html.contains("Automatic checks"));
     assert!(html.contains("Operator verification"));
     assert!(
@@ -76,7 +76,7 @@ fn manually_confirmed_ready_remains_separate_from_automatic_ready() {
     let mut view = snapshot();
     view.checks[3].state = CheckState::Ready;
     let html = render_setup_page(&view, 1_800_000_000);
-    assert!(!html.contains("operator checks await confirmation"));
+    assert!(!html.contains("Operator checks awaiting confirmation or review"));
     assert!(html.contains("Operator verification"));
     assert!(html.contains("Inbound delivery: Ready"));
     assert!(html.contains("Automatic checks"));
