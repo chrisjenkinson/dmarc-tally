@@ -18,7 +18,7 @@ use tally_aws::{
     ses_email::{SesEmailSender, SignInOrigin},
     ses_identity::{IdentityEvidence, SesIdentityReader},
     ses_receiving::{ReceiptEvidence, SesReceiptReader},
-    setup_evidence::{ProcessingEvidence, ProcessingEvidenceStore},
+    setup_evidence::{DeliveryEvidence, ProcessingEvidence, ProcessingEvidenceStore},
 };
 use tally_core::{
     authentication::{AdminEmail, Authentication},
@@ -86,6 +86,7 @@ impl SetupInspector for SesSetupInspector {
         )
         .await;
         let processing = self.evidence.inspect(&self.intake_bucket).await;
+        let delivery = self.evidence.inspect_delivery(&self.intake_bucket).await;
         let (processing_state, processing_detail) = match processing {
             ProcessingEvidence::Recent => (
                 CheckState::Ready,
@@ -186,8 +187,19 @@ impl SetupInspector for SesSetupInspector {
                 },
                 SetupCheck {
                     title: "End-to-end report delivery",
-                    state: CheckState::NotVerified,
-                    detail: "A verified SES-to-S3-to-database test still needs an explicitly sent test email and confirmation of its receipt. Generic processing evidence is insufficient.".into(),
+                    state: match delivery {
+                        DeliveryEvidence::OperatorConfirmed => CheckState::Ready,
+                        DeliveryEvidence::NotVerified => CheckState::NotVerified,
+                        DeliveryEvidence::UnableToCheck => CheckState::UnableToCheck,
+                    },
+                    detail: match delivery {
+                        DeliveryEvidence::OperatorConfirmed =>
+                            "A controlled SES-to-S3-to-database test was explicitly confirmed by the operator after checking the receiving rule and captured S3 object. This is an operator attestation, not independent proof of SES upload provenance.",
+                        DeliveryEvidence::NotVerified =>
+                            "No operator-confirmed end-to-end delivery test has been recorded. Successful S3 processing alone does not prove SES delivery.",
+                        DeliveryEvidence::UnableToCheck =>
+                            "Unable to inspect the private end-to-end test confirmation. Verify permissions and the evidence format.",
+                    }.into(),
                 },
                 SetupCheck {
                     title: "SNS failure email subscription",
