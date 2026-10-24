@@ -17,7 +17,7 @@ use tally_core::{
 use tally_lambda::web_event::handle_http_v2;
 use tally_web::{
     http::SiteOrigin,
-    setup::{CheckState, SetupCheck, SetupInspector, SetupSnapshot},
+    setup::{CheckState, SetupCheck, SetupInspector, SetupSnapshot, VerificationMethod},
 };
 
 const NOW: i64 = 1_800_000_000;
@@ -100,6 +100,7 @@ impl SetupInspector for FakeSetup {
             monitored_domains: vec![DomainName::parse("example.com").unwrap()],
             checks: vec![SetupCheck {
                 title: "SES receiving rule",
+                method: VerificationMethod::Automatic,
                 state: CheckState::NotVerified,
                 detail: "Not yet verified against SES.".into(),
             }],
