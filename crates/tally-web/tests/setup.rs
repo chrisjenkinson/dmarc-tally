@@ -1,5 +1,7 @@
 use tally_core::identity::DomainName;
-use tally_web::setup::{render_setup_page, CheckState, SetupCheck, SetupSnapshot, VerificationMethod};
+use tally_web::setup::{
+    render_setup_page, CheckState, SetupCheck, SetupSnapshot, VerificationMethod,
+};
 
 fn snapshot() -> SetupSnapshot {
     SetupSnapshot {
@@ -58,10 +60,13 @@ fn setup_page_shows_configured_address_monitored_domains_and_distinct_states() {
     assert!(html.contains("1 operator checks await confirmation"));
     assert!(html.contains("Automatic checks"));
     assert!(html.contains("Operator verification"));
-    assert!(html.find("<h3>Automatic checks</h3>").unwrap()
-        < html.find("SES receiving rule").unwrap());
-    assert!(html.find("<h3>Operator verification</h3>").unwrap()
-        < html.find("Inbound delivery").unwrap());
+    assert!(
+        html.find("<h3>Automatic checks</h3>").unwrap() < html.find("SES receiving rule").unwrap()
+    );
+    assert!(
+        html.find("<h3>Operator verification</h3>").unwrap()
+            < html.find("Inbound delivery").unwrap()
+    );
     assert!(html.contains("AWS configuration does not prove successful email delivery"));
     assert!(!html.contains("All checks passed"));
 }

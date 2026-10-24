@@ -66,15 +66,29 @@ pub fn render_setup_page(snapshot: &SetupSnapshot, checked_at: i64) -> String {
             at.year(), u8::from(at.month()), at.day(), at.hour(), at.minute(),
         ));
     }
-    let automatic = snapshot.checks.iter()
+    let automatic = snapshot
+        .checks
+        .iter()
         .filter(|check| check.method == VerificationMethod::Automatic);
-    let needs_action = automatic.clone().filter(|check| check.state == CheckState::ActionRequired).count();
-    let unknown = automatic.filter(|check| matches!(
-        check.state, CheckState::NotVerified | CheckState::UnableToCheck
-    )).count();
-    let operator_pending = snapshot.checks.iter().filter(|check| {
-        check.method == VerificationMethod::Operator && check.state != CheckState::Ready
-    }).count();
+    let needs_action = automatic
+        .clone()
+        .filter(|check| check.state == CheckState::ActionRequired)
+        .count();
+    let unknown = automatic
+        .filter(|check| {
+            matches!(
+                check.state,
+                CheckState::NotVerified | CheckState::UnableToCheck
+            )
+        })
+        .count();
+    let operator_pending = snapshot
+        .checks
+        .iter()
+        .filter(|check| {
+            check.method == VerificationMethod::Operator && check.state != CheckState::Ready
+        })
+        .count();
     if needs_action > 0 {
         html.push_str(&format!("<p role=\"status\"><strong>{needs_action} automatic setup checks require action.</strong> Review the details below.</p>"));
     }
@@ -82,7 +96,9 @@ pub fn render_setup_page(snapshot: &SetupSnapshot, checked_at: i64) -> String {
         html.push_str(&format!("<p>{unknown} automatic checks remain unverified or unavailable. This does not mean incoming mail is broken.</p>"));
     }
     if operator_pending > 0 {
-        html.push_str(&format!("<p>{operator_pending} operator checks await confirmation or further inspection.</p>"));
+        html.push_str(&format!(
+            "<p>{operator_pending} operator checks await confirmation or further inspection.</p>"
+        ));
     }
 
     html.push_str(
