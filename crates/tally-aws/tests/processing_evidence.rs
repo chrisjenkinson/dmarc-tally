@@ -148,11 +148,35 @@ const PRESENT_DELIVERY: &str = "<ListBucketResult xmlns=\"http://s3.amazonaws.co
 #[tokio::test]
 async fn missing_operator_confirmation_is_not_an_aws_inspection_failure() {
     for (get_status, get_body, list_status, list_body, expected) in [
-        (403, DENIED, 200, EMPTY_DELIVERY, DeliveryEvidence::NotVerified),
-        (403, DENIED, 200, PRESENT_DELIVERY, DeliveryEvidence::UnableToCheck),
+        (
+            403,
+            DENIED,
+            200,
+            EMPTY_DELIVERY,
+            DeliveryEvidence::NotVerified,
+        ),
+        (
+            403,
+            DENIED,
+            200,
+            PRESENT_DELIVERY,
+            DeliveryEvidence::UnableToCheck,
+        ),
         (403, DENIED, 403, DENIED, DeliveryEvidence::UnableToCheck),
-        (500, "<Error><Code>InternalError</Code></Error>", 200, EMPTY_DELIVERY, DeliveryEvidence::UnableToCheck),
-        (404, "<Error><Code>NoSuchKey</Code></Error>", 403, DENIED, DeliveryEvidence::NotVerified),
+        (
+            500,
+            "<Error><Code>InternalError</Code></Error>",
+            200,
+            EMPTY_DELIVERY,
+            DeliveryEvidence::UnableToCheck,
+        ),
+        (
+            404,
+            "<Error><Code>NoSuchKey</Code></Error>",
+            403,
+            DENIED,
+            DeliveryEvidence::NotVerified,
+        ),
     ] {
         let fixture = S3Fixture::new(get_status, get_body.to_owned(), list_status, list_body);
         assert_eq!(

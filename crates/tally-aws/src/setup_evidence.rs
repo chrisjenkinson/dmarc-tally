@@ -122,7 +122,11 @@ impl ProcessingEvidenceStore {
             .max_keys(1)
             .send()
             .await
-            .is_ok_and(|page| page.contents().iter().all(|item| item.key() != Some(marker)))
+            .is_ok_and(|page| {
+                page.contents()
+                    .iter()
+                    .all(|item| item.key() != Some(marker))
+            })
     }
 
     /// A separate, explicit operator attestation of one controlled delivery
@@ -139,7 +143,9 @@ impl ProcessingEvidenceStore {
             Ok(value) => value,
             Err(error) => {
                 if error.as_service_error().is_some_and(|e| e.is_no_such_key())
-                    || (error.raw_response().is_some_and(|response| response.status().as_u16() == 403)
+                    || (error
+                        .raw_response()
+                        .is_some_and(|response| response.status().as_u16() == 403)
                         && self.marker_is_absent(bucket, DELIVERY_MARKER).await)
                 {
                     return DeliveryEvidence::NotVerified;
@@ -181,7 +187,9 @@ impl ProcessingEvidenceStore {
                 {
                     return ProcessingEvidence::NotObserved;
                 }
-                if error.raw_response().is_some_and(|response| response.status().as_u16() == 403)
+                if error
+                    .raw_response()
+                    .is_some_and(|response| response.status().as_u16() == 403)
                     && self.marker_is_absent(bucket, MARKER).await
                 {
                     return ProcessingEvidence::NotObserved;
