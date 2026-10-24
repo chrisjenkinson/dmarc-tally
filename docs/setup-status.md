@@ -64,6 +64,17 @@ CloudTrail S3 data-event provenance. A new S3 ingestion or a healthy SES
 rule alone can never create this attestation. The confirmation requires
 explicit CLI consent and is not part of an unattended deployment.
 
+After independently identifying the controlled SES test's exact
+`incoming/<SES-message-id>` S3 object, use the local
+`python3 scripts/install.py confirm-delivery --object-key incoming/<SES-message-id> --confirm-observed-delivery`
+command **only with explicit approval**. It checks account, current active
+SES rule and destination, S3 object recency and `captured=true` tagging
+before storing the compact attestation. A failure makes no assertion of
+success. This CLI writes **only** the named private S3 confirmation marker,
+not mail, configuration, CloudFormation, or DNS. The web Lambda additionally
+needs an approved stack update to read it. Do not record the message ID
+or any private email contents in public issues or logs.
+
 DNS checks use the system resolver on authenticated page requests (bounded,
 read-only MX/TXT DNS queries, no third-party DoH endpoint). They inspect the
 receiving hostname's MX against the expected regional SES inbound endpoint;

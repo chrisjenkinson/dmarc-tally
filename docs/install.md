@@ -238,6 +238,28 @@ output into public issues, CI or installation logs. It derives the live
 part from CloudFormation and does not track progress in a new database.
 If the dashboard is not installed, a deployed URL cannot yet be confirmed.
 
+Once you have personally confirmed a controlled incoming SES email
+reached S3 and a supported attached DMARC report was successfully
+persisted/capture-tagged, an optional **operator-confirmed**
+end-to-end check can be recorded using:
+
+```sh
+python3 scripts/install.py confirm-delivery \\
+  --object-key incoming/<SES-message-id> \\
+  --confirm-observed-delivery
+```
+
+This is a **separate, explicit production S3 write**, not a read-only
+installer status or an automatic deployment step. Use it only with reviewed
+approval after independently confirming SES provenance. The installer
+checks the active SES rule, configured bucket/recipient, and captured
+object; it stores a timestamp-only confirmation under
+`setup/end-to-end-confirmed.json`. It does not independently prove who
+uploaded the object. The updated web stack needs narrowly scoped read
+permission for that marker, so do not assume the check changes on the live
+page merely by merging the code. Never share the object key or receipt
+details publicly.
+
 Use the authenticated `/setup` page to review live SES, MX/`rua`/
 authorisation, recent processing and alarm *configuration*. It is not
 continuous monitoring. The processing marker may reflect an S3 upload
