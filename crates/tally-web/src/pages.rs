@@ -93,7 +93,6 @@ pub(crate) fn finish_page(mut page: String) -> String {
     page
 }
 
-
 fn percentage(part: u64, total: u64) -> String {
     if total == 0 {
         return "—".to_owned();
@@ -103,7 +102,14 @@ fn percentage(part: u64, total: u64) -> String {
 
 fn utc_date(epoch: i64) -> String {
     time::OffsetDateTime::from_unix_timestamp(epoch)
-        .map(|time| format!("{:04}-{:02}-{:02}", time.year(), u8::from(time.month()), time.day()))
+        .map(|time| {
+            format!(
+                "{:04}-{:02}-{:02}",
+                time.year(),
+                u8::from(time.month()),
+                time.day()
+            )
+        })
         .unwrap_or_else(|_| "Unknown date".to_owned())
 }
 
@@ -188,11 +194,16 @@ pub fn render_report_page(view: &ReportViewModel) -> String {
 
     html.push_str("<section aria-labelledby=\"failure-sources\"><h2 id=\"failure-sources\">Sources with DMARC failures</h2>");
     html.push_str("<p class=\"muted\">Prioritised by observed failed-message volume. A source with failed DMARC is not necessarily malicious; investigate expected senders and alignment first.</p>");
-    let mut failing_sources: Vec<_> = view.summary.by_ip.iter()
+    let mut failing_sources: Vec<_> = view
+        .summary
+        .by_ip
+        .iter()
         .filter(|(_, traffic)| traffic.failed > 0)
         .collect();
     failing_sources.sort_by(|(left_ip, left), (right_ip, right)| {
-        right.failed.cmp(&left.failed)
+        right
+            .failed
+            .cmp(&left.failed)
             .then_with(|| right.messages.cmp(&left.messages))
             .then_with(|| left_ip.cmp(right_ip))
     });
@@ -234,7 +245,9 @@ pub fn render_report_page(view: &ReportViewModel) -> String {
         html.push_str("</tbody></table></div></section>");
     }
 
-    html.push_str("<section aria-labelledby=\"reporters\"><h2 id=\"reporters\">Reporting organisations</h2>");
+    html.push_str(
+        "<section aria-labelledby=\"reporters\"><h2 id=\"reporters\">Reporting organisations</h2>",
+    );
     html.push_str("<p class=\"muted\">Receivers reporting the highest failed-message volumes appear first.</p>");
     html.push_str("<div class=\"table-scroll\"><table><caption>Observations grouped by reporting organisation</caption>");
     html.push_str("<thead><tr><th scope=\"col\">Reporting organisation</th><th scope=\"col\">Messages</th><th scope=\"col\">Passed</th><th scope=\"col\">Failed</th><th scope=\"col\">Failure rate</th></tr></thead><tbody>");
@@ -256,7 +269,9 @@ pub fn render_report_page(view: &ReportViewModel) -> String {
 
     if !view.recent_reports.is_empty() {
         html.push_str("<section aria-labelledby=\"recent-reports\"><h2 id=\"recent-reports\">Recent reports</h2><p class=\"muted\">Showing up to 20 reports in this period. Summary totals above include all reports.</p>");
-        html.push_str("<div class=\"table-scroll\"><table><caption>Recent individual DMARC reports</caption>");
+        html.push_str(
+            "<div class=\"table-scroll\"><table><caption>Recent individual DMARC reports</caption>",
+        );
         html.push_str("<thead><tr><th scope=\"col\">Reporting organisation</th><th scope=\"col\">Domain</th><th scope=\"col\">Period end (UTC)</th><th scope=\"col\">Messages</th></tr></thead><tbody>");
         for report in &view.recent_reports {
             html.push_str(&format!(
