@@ -86,7 +86,7 @@ class PrivateWebFoundationContract(unittest.TestCase):
         self.assertIn("NumericLessThanEquals:", role)
         self.assertIn("s3:max-keys: 1", role)
         evidence_list = re.search(
-            r"Sid: InspectOnlySetupEvidenceExistence\\n(.*?)(?=\\n              - Sid:)",
+            r"Sid: InspectOnlySetupEvidenceExistence\n(.*?)(?=\n              - Sid:)",
             role, re.S,
         )
         self.assertIsNotNone(evidence_list)
