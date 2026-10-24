@@ -1,5 +1,5 @@
 use tally_core::identity::DomainName;
-use tally_web::setup::{render_setup_page, CheckState, SetupCheck, SetupSnapshot};
+use tally_web::setup::{render_setup_page, CheckState, SetupCheck, SetupSnapshot, VerificationMethod};
 
 fn snapshot() -> SetupSnapshot {
     SetupSnapshot {
@@ -8,21 +8,25 @@ fn snapshot() -> SetupSnapshot {
         checks: vec![
             SetupCheck {
                 title: "SES receiving rule",
+                method: VerificationMethod::Automatic,
                 state: CheckState::ActionRequired,
                 detail: "The configured rule is not enabled in the active rule set.".into(),
             },
             SetupCheck {
                 title: "Receiving MX / DMARC DNS",
+                method: VerificationMethod::Automatic,
                 state: CheckState::NotVerified,
                 detail: "DNS records have not been checked.".into(),
             },
             SetupCheck {
                 title: "Sending identity",
+                method: VerificationMethod::Automatic,
                 state: CheckState::Ready,
                 detail: "The configured identity appears verified in SES.".into(),
             },
             SetupCheck {
                 title: "Inbound delivery",
+                method: VerificationMethod::Operator,
                 state: CheckState::UnableToCheck,
                 detail: "No end-to-end test result is available.".into(),
             },
@@ -49,10 +53,28 @@ fn setup_page_shows_configured_address_monitored_domains_and_distinct_states() {
     assert!(html.contains("Inbound delivery"));
     assert!(html.contains("Refresh checks"));
     assert!(html.contains("UTC"));
-    assert!(html.contains("1 setup checks require action"));
-    assert!(html.contains("2 checks remain unverified or unavailable"));
+    assert!(html.contains("1 automatic setup checks require action"));
+    assert!(html.contains("1 automatic checks remain unverified or unavailable"));
+    assert!(html.contains("1 operator checks await confirmation"));
+    assert!(html.contains("Automatic checks"));
+    assert!(html.contains("Operator verification"));
+    assert!(html.find("<h3>Automatic checks</h3>").unwrap()
+        < html.find("SES receiving rule").unwrap());
+    assert!(html.find("<h3>Operator verification</h3>").unwrap()
+        < html.find("Inbound delivery").unwrap());
     assert!(html.contains("AWS configuration does not prove successful email delivery"));
     assert!(!html.contains("All checks passed"));
+}
+
+#[test]
+fn manually_confirmed_ready_remains_separate_from_automatic_ready() {
+    let mut view = snapshot();
+    view.checks[3].state = CheckState::Ready;
+    let html = render_setup_page(&view, 1_800_000_000);
+    assert!(!html.contains("operator checks await confirmation"));
+    assert!(html.contains("Operator verification"));
+    assert!(html.contains("Inbound delivery: Ready"));
+    assert!(html.contains("Automatic checks"));
 }
 
 #[test]
