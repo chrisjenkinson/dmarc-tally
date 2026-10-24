@@ -16,7 +16,7 @@ use tally_core::{
 };
 use tally_web::{
     http::{handle, Request, SiteOrigin},
-    setup::{CheckState, SetupCheck, SetupInspector, SetupSnapshot},
+    setup::{CheckState, SetupCheck, SetupInspector, SetupSnapshot, VerificationMethod},
 };
 
 const NOW: i64 = 1_800_000_000;
@@ -106,6 +106,7 @@ impl SetupInspector for FakeSetup {
             monitored_domains: vec![DomainName::parse("example.com").unwrap()],
             checks: vec![SetupCheck {
                 title: "SES receiving rule",
+                method: VerificationMethod::Automatic,
                 state: CheckState::NotVerified,
                 detail: "AWS receiving has not been checked.".into(),
             }],
