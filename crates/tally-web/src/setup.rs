@@ -27,8 +27,16 @@ impl CheckState {
     }
 }
 
+/// How readiness is established, independent of its status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VerificationMethod {
+    Automatic,
+    Operator,
+}
+
 #[derive(Clone, Debug)]
 pub struct SetupCheck {
+    pub method: VerificationMethod,
     pub title: &'static str,
     pub state: CheckState,
     /// Plain text, never markup or a raw AWS API error.
@@ -58,21 +66,23 @@ pub fn render_setup_page(snapshot: &SetupSnapshot, checked_at: i64) -> String {
             at.year(), u8::from(at.month()), at.day(), at.hour(), at.minute(),
         ));
     }
-    let needs_action = snapshot
-        .checks
-        .iter()
-        .filter(|c| c.state == CheckState::ActionRequired)
-        .count();
-    let unknown = snapshot
-        .checks
-        .iter()
-        .filter(|c| matches!(c.state, CheckState::NotVerified | CheckState::UnableToCheck))
-        .count();
+    let automatic = snapshot.checks.iter()
+        .filter(|check| check.method == VerificationMethod::Automatic);
+    let needs_action = automatic.clone().filter(|check| check.state == CheckState::ActionRequired).count();
+    let unknown = automatic.filter(|check| matches!(
+        check.state, CheckState::NotVerified | CheckState::UnableToCheck
+    )).count();
+    let operator_pending = snapshot.checks.iter().filter(|check| {
+        check.method == VerificationMethod::Operator && check.state != CheckState::Ready
+    }).count();
     if needs_action > 0 {
-        html.push_str(&format!("<p role=\"status\"><strong>{needs_action} setup checks require action.</strong> Review the details below.</p>"));
+        html.push_str(&format!("<p role=\"status\"><strong>{needs_action} automatic setup checks require action.</strong> Review the details below.</p>"));
     }
     if unknown > 0 {
-        html.push_str(&format!("<p>{unknown} checks remain unverified or unavailable. This does not mean incoming mail is broken.</p>"));
+        html.push_str(&format!("<p>{unknown} automatic checks remain unverified or unavailable. This does not mean incoming mail is broken.</p>"));
+    }
+    if operator_pending > 0 {
+        html.push_str(&format!("<p>{operator_pending} operator checks await confirmation or further inspection.</p>"));
     }
 
     html.push_str(
@@ -94,18 +104,35 @@ pub fn render_setup_page(snapshot: &SetupSnapshot, checked_at: i64) -> String {
             escape_html(domain.as_str())
         ));
     }
-    html.push_str("</ul><h3>Checks</h3><ul>");
-    for check in &snapshot.checks {
-        html.push_str(&format!(
-            "<li><strong>{}: {}</strong><p>{}</p></li>",
-            escape_html(check.title),
-            check.state.label(),
-            escape_html(&check.detail),
-        ));
+    html.push_str("</ul>");
+    for (method, heading, explanation) in [
+        (
+            VerificationMethod::Automatic,
+            "Automatic checks",
+            "Read-only AWS, DNS and processing evidence inspected when this page loads. Ready applies only to the named condition.",
+        ),
+        (
+            VerificationMethod::Operator,
+            "Operator verification",
+            "These require a controlled real-world test and explicit confirmation. Refreshing the page alone does not perform or approve them.",
+        ),
+    ] {
+        if !snapshot.checks.iter().any(|check| check.method == method) {
+            continue;
+        }
+        html.push_str(&format!("<section><h3>{heading}</h3><p>{explanation}</p><ul>"));
+        for check in snapshot.checks.iter().filter(|check| check.method == method) {
+            html.push_str(&format!(
+                "<li><strong>{}: {}</strong><p>{}</p></li>",
+                escape_html(check.title),
+                check.state.label(),
+                escape_html(&check.detail),
+            ));
+        }
+        html.push_str("</ul></section>");
     }
     html.push_str(
-        "</ul><p class=\"muted\">Results are checked when this page loads. \
-         Refresh to inspect again. An observed AWS configuration is not proof of a successful end-to-end test.</p>",
+        "<p class=\"muted\">Results are checked when this page loads. Refresh to inspect again. An observed AWS configuration is not proof of a successful end-to-end test.</p>",
     );
     finish_page(html)
 }
