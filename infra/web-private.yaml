@@ -186,6 +186,17 @@ Resources:
                 Resource:
                   - !Sub 'arn:${AWS::Partition}:s3:::${IntakeBucketName}/setup/last-captured.json'
                   - !Sub 'arn:${AWS::Partition}:s3:::${IntakeBucketName}/setup/end-to-end-confirmed.json'
+              - Sid: InspectOnlySetupEvidenceExistence
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${IntakeBucketName}'
+                Condition:
+                  StringEquals:
+                    s3:prefix:
+                      - setup/last-captured.json
+                      - setup/end-to-end-confirmed.json
+                  NumericLessThanEquals:
+                    s3:max-keys: 1
               - Sid: WriteOnlyPrivateWebLogs
                 Effect: Allow
                 Action:

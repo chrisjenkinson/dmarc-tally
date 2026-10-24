@@ -81,6 +81,20 @@ class PrivateWebFoundationContract(unittest.TestCase):
         self.assertIn("s3:GetObject", role)
         self.assertIn("setup/last-captured.json", role)
         self.assertIn("setup/end-to-end-confirmed.json", role)
+        self.assertIn("Sid: InspectOnlySetupEvidenceExistence", role)
+        self.assertIn("s3:ListBucket", role)
+        self.assertIn("NumericLessThanEquals:", role)
+        self.assertIn("s3:max-keys: 1", role)
+        evidence_list = re.search(
+            r"Sid: InspectOnlySetupEvidenceExistence\\n(.*?)(?=\\n              - Sid:)",
+            role, re.S,
+        )
+        self.assertIsNotNone(evidence_list)
+        self.assertIn("StringEquals:", evidence_list.group(1))
+        self.assertIn("s3:prefix:", evidence_list.group(1))
+        self.assertIn("- setup/last-captured.json", evidence_list.group(1))
+        self.assertIn("- setup/end-to-end-confirmed.json", evidence_list.group(1))
+        self.assertNotIn("incoming/", evidence_list.group(1))
         self.assertNotIn("/incoming/*", role)
         # Only this SES read operation needs a wildcard resource; it is
         # constrained to the deployed AWS region and grants no mutation.

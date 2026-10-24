@@ -110,6 +110,21 @@ impl ProcessingEvidenceStore {
         Ok(())
     }
 
+    /// S3 may conceal a missing GetObject key with HTTP 403 when this
+    /// Lambda cannot list the bucket. On that one response only, check
+    /// existence by a one-result prefix listing of exactly this marker.
+    /// IAM restricts the list to these two named setup objects.
+    async fn marker_is_absent(&self, bucket: &str, marker: &str) -> bool {
+        self.client
+            .list_objects_v2()
+            .bucket(bucket)
+            .prefix(marker)
+            .max_keys(1)
+            .send()
+            .await
+            .is_ok_and(|page| page.contents().iter().all(|item| item.key() != Some(marker)))
+    }
+
     /// A separate, explicit operator attestation of one controlled delivery
     /// test, not a claim of cryptographic SES object provenance.
     pub async fn inspect_delivery(&self, bucket: &str) -> DeliveryEvidence {
@@ -122,10 +137,15 @@ impl ProcessingEvidenceStore {
             .await
         {
             Ok(value) => value,
-            Err(error) if error.as_service_error().is_some_and(|e| e.is_no_such_key()) => {
-                return DeliveryEvidence::NotVerified
+            Err(error) => {
+                if error.as_service_error().is_some_and(|e| e.is_no_such_key())
+                    || (error.raw_response().is_some_and(|response| response.status().as_u16() == 403)
+                        && self.marker_is_absent(bucket, DELIVERY_MARKER).await)
+                {
+                    return DeliveryEvidence::NotVerified;
+                }
+                return DeliveryEvidence::UnableToCheck;
             }
-            Err(_) => return DeliveryEvidence::UnableToCheck,
         };
         if output
             .content_length()
@@ -158,6 +178,11 @@ impl ProcessingEvidenceStore {
                 if error
                     .as_service_error()
                     .is_some_and(|error| error.is_no_such_key())
+                {
+                    return ProcessingEvidence::NotObserved;
+                }
+                if error.raw_response().is_some_and(|response| response.status().as_u16() == 403)
+                    && self.marker_is_absent(bucket, MARKER).await
                 {
                     return ProcessingEvidence::NotObserved;
                 }
