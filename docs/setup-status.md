@@ -48,9 +48,32 @@ marker is retained independently of one-day MIME expiration and is not a
 customer-facing history.
 
 This is evidence of *processing*, **not** an SES-to-S3 delivery test:
-manual S3 uploads can also be processed. End-to-end delivery remains
-Not verified until a controlled real email is sent and its receipt is
-confirmed separately.
+manual S3 uploads can also be processed. End-to-end delivery is Ready
+only after a **separate operator confirmation** of a controlled email test.
+The administrator explicitly records that confirmation via the installation
+CLI after independently checking SES receiving configuration, the matching
+captured S3 object and successful processing. It is kept under
+`setup/end-to-end-confirmed.json`, independently from the rolling capture
+marker and one-day raw MIME lifecycle. It contains only schema version and
+timestamps; it never stores the object's name or email content. The web
+Lambda may read this exact object but cannot write it.
+
+This attestation reflects an administrator-confirmed operational test, **not
+cryptographic proof** that SES put the object: the existing bucket lacks
+CloudTrail S3 data-event provenance. A new S3 ingestion or a healthy SES
+rule alone can never create this attestation. The confirmation requires
+explicit CLI consent and is not part of an unattended deployment.
+
+After independently identifying the controlled SES test's exact
+`incoming/<SES-message-id>` S3 object, use the local
+`python3 scripts/install.py confirm-delivery --object-key incoming/<SES-message-id> --confirm-observed-delivery`
+command **only with explicit approval**. It checks account, current active
+SES rule and destination, S3 object recency and `captured=true` tagging
+before storing the compact attestation. A failure makes no assertion of
+success. This CLI writes **only** the named private S3 confirmation marker,
+not mail, configuration, CloudFormation, or DNS. The web Lambda additionally
+needs an approved stack update to read it. Do not record the message ID
+or any private email contents in public issues or logs.
 
 DNS checks use the system resolver on authenticated page requests (bounded,
 read-only MX/TXT DNS queries, no third-party DoH endpoint). They inspect the

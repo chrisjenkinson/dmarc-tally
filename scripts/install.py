@@ -1002,11 +1002,81 @@ def run_preflight(cfg: dict) -> bool:
     return not login_issue
 
 
+
+def confirm_delivery(cfg: dict, key: str | None, approve: bool) -> None:
+    """Explicit, operator-reviewed attestation; never invoked by plan/apply."""
+    if not approve:
+        raise InstallError("Use --confirm-observed-delivery after independently verifying the SES test.")
+    if (not isinstance(key, str)
+            or re.fullmatch(r"incoming/[A-Za-z0-9_-]{20,100}", key) is None):
+        raise InstallError("Provide the exact validated incoming/<SES-message-id> S3 key.")
+    verify_account(cfg)
+    bucket = outputs_for(cfg, "ingestion").get("IntakeBucket")
+    require(bool(bucket), "production intake bucket")
+    # This checks processing of one specific object, not the provenance
+    # of the S3 PUT. Operator must independently confirm SES delivery.
+    observed, _ = aws_run(cfg, "s3api", "head-object",
+                          "--bucket", bucket, "--key", key)
+    tags, _ = aws_run(cfg, "s3api", "get-object-tagging",
+                      "--bucket", bucket, "--key", key)
+    if not any(t.get("Key") == "captured" and t.get("Value") == "true"
+               for t in tags.get("TagSet", [])):
+        raise InstallError("Selected object is not captured; verify DMARC processing first.")
+    last_modified = observed.get("LastModified")
+    if not isinstance(last_modified, str):
+        raise InstallError("Could not verify the captured object's modification time.")
+    from datetime import datetime, timezone
+    try:
+        observed_at = int(datetime.fromisoformat(
+            last_modified.replace("Z", "+00:00")).timestamp())
+    except ValueError as exc:
+        raise InstallError("Could not parse S3 object observation time.") from exc
+    now = int(datetime.now(timezone.utc).timestamp())
+    if observed_at <= 0 or observed_at > now + 300 or now - observed_at > 7 * 86400:
+        raise InstallError("Use a recent captured report from the controlled delivery test.")
+
+    rule, _ = aws_run(cfg, "ses", "describe-active-receipt-rule-set")
+    active = (rule.get("Metadata") or {}).get("Name")
+    expected = cfg["email"]["receipt_rule_set"]
+    address = cfg["email"]["receiving"]
+    matching = [r for r in rule.get("Rules", [])
+                if r.get("Name") == cfg["email"]["receipt_rule_name"]]
+    if active != expected or len(matching) != 1:
+        raise InstallError("Expected SES receipt rule is not active.")
+    match = matching[0]
+    actions = match.get("Actions") or []
+    if (match.get("Enabled") is not True
+            or match.get("Recipients") != [address]
+            or len(actions) != 1
+            or (actions[0].get("S3Action") or {}).get("BucketName") != bucket
+            or (actions[0].get("S3Action") or {}).get("ObjectKeyPrefix") != "incoming/"):
+        raise InstallError("Active SES rule or S3 destination does not match the intended delivery.")
+
+    # No raw message, recipient or object key appears in retained evidence.
+    evidence = {"version": 1, "observed_at": observed_at, "verified_at": now}
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                                     dir=LOCAL, prefix=".delivery-", delete=False) as tmp:
+        private_path = Path(tmp.name)
+        os.chmod(private_path, 0o600)
+        json.dump(evidence, tmp)
+    try:
+        aws_run(cfg, "s3api", "put-object",
+                "--bucket", bucket, "--key", "setup/end-to-end-confirmed.json",
+                "--body", str(private_path), "--content-type", "application/json",
+                "--server-side-encryption", "AES256")
+    finally:
+        private_path.unlink(missing_ok=True)
+    print("Recorded private operator-confirmed delivery test. Refresh /setup after deploying the updated web Lambda.")
+    print("This does not independently prove S3 PUT provenance or change monitored-domain rua.")
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Locally configured DMARC Tally installer")
-    parser.add_argument("command", choices=["init", "check", "preflight", "status", "summary", "build", "upload", "plan", "apply"])
+    parser.add_argument("command", choices=["init", "check", "preflight", "status", "summary", "confirm-delivery", "build", "upload", "plan", "apply"])
     parser.add_argument("component", nargs="?", choices=sorted(STACKS))
     parser.add_argument("--approve", help="Exact reviewed CloudFormation change-set ARN")
+    parser.add_argument("--object-key", help="Exact controlled-test S3 incoming/ key; private")
+    parser.add_argument("--confirm-observed-delivery", action="store_true",
+                        help="Explicit operator confirmation of SES delivery provenance")
     parser.add_argument("--allow-public-edge", action="store_true",
                         help="Explicitly approve creating or updating the public HTTPS API")
     args = parser.parse_args()
@@ -1023,6 +1093,8 @@ def main() -> None:
         show_status(cfg, inspect_installation(cfg))
     elif args.command == "summary":
         show_summary(cfg, inspect_installation(cfg))
+    elif args.command == "confirm-delivery":
+        confirm_delivery(cfg, args.object_key, args.confirm_observed_delivery)
     elif args.command == "build":
         build()
     elif args.command == "upload":

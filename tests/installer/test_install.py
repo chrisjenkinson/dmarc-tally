@@ -466,6 +466,65 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("Next action:", value)
         self.assertNotIn("000000000000", value)
 
+
+    def test_delivery_confirmation_requires_explicit_approval_before_aws(self):
+        from unittest.mock import patch
+        with patch.object(install, "aws_run",
+                          side_effect=AssertionError("must not call AWS")):
+            with self.assertRaises(install.InstallError):
+                install.confirm_delivery(configured(), "incoming/" + "a" * 40, False)
+            with self.assertRaises(install.InstallError):
+                install.confirm_delivery(configured(), "../secrets", True)
+
+    def test_delivery_confirmation_checks_captured_tag_and_ses_rule_before_write(self):
+        from unittest.mock import patch
+        import tempfile
+        from contextlib import redirect_stdout
+        cfg = configured()
+        key = "incoming/" + "a" * 40
+        calls = []
+
+        def fake_aws(_cfg, *args, allow_error=False):
+            calls.append(args[:2])
+            operation = args[:2]
+            if operation == ("sts", "get-caller-identity"):
+                return {"Account": cfg["aws"]["account_id"]}, ""
+            if operation == ("s3api", "head-object"):
+                from datetime import datetime, timezone
+                return {"LastModified": datetime.now(timezone.utc).isoformat()}, ""
+            if operation == ("s3api", "get-object-tagging"):
+                return {"TagSet": [{"Key": "captured", "Value": "true"}]}, ""
+            if operation == ("ses", "describe-active-receipt-rule-set"):
+                return {"Metadata": {"Name": cfg["email"]["receipt_rule_set"]},
+                        "Rules": [{"Name": cfg["email"]["receipt_rule_name"],
+                                   "Enabled": True,
+                                   "Recipients": [cfg["email"]["receiving"]],
+                                   "Actions": [{"S3Action": {
+                                       "BucketName": "private-intake",
+                                       "ObjectKeyPrefix": "incoming/"}}]}]}, ""
+            if operation == ("s3api", "put-object"):
+                self.assertIn("setup/end-to-end-confirmed.json", args)
+                self.assertIn("--server-side-encryption", args)
+                return {}, ""
+            self.fail("Unexpected AWS API call: " + str(operation))
+
+        with tempfile.TemporaryDirectory() as directory:
+            private = Path(directory)
+            with (patch.object(install, "LOCAL", private),
+                  patch.object(install, "aws_run", side_effect=fake_aws),
+                  patch.object(install, "outputs_for", return_value={
+                      "IntakeBucket": "private-intake"}),
+                  redirect_stdout(io.StringIO())):
+                install.confirm_delivery(cfg, key, True)
+                self.assertFalse(list(private.glob(".delivery-*")))
+        self.assertEqual(calls, [
+            ("sts", "get-caller-identity"),
+            ("s3api", "head-object"),
+            ("s3api", "get-object-tagging"),
+            ("ses", "describe-active-receipt-rule-set"),
+            ("s3api", "put-object"),
+        ])
+
     def test_unsafe_cloudformation_operations_must_fail_closed(self):
         safe = [
             {"ResourceChange": {"Action": "Add", "LogicalResourceId": "SafeLog", "ResourceType": "AWS::Logs::LogGroup"}},

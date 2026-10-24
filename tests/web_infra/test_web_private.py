@@ -80,6 +80,7 @@ class PrivateWebFoundationContract(unittest.TestCase):
         self.assertIn("Sid: ReadOnlyCaptureEvidence", role)
         self.assertIn("s3:GetObject", role)
         self.assertIn("setup/last-captured.json", role)
+        self.assertIn("setup/end-to-end-confirmed.json", role)
         self.assertNotIn("/incoming/*", role)
         # Only this SES read operation needs a wildcard resource; it is
         # constrained to the deployed AWS region and grants no mutation.

@@ -183,7 +183,9 @@ Resources:
               - Sid: ReadOnlyCaptureEvidence
                 Effect: Allow
                 Action: s3:GetObject
-                Resource: !Sub 'arn:${AWS::Partition}:s3:::${IntakeBucketName}/setup/last-captured.json'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${IntakeBucketName}/setup/last-captured.json'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${IntakeBucketName}/setup/end-to-end-confirmed.json'
               - Sid: WriteOnlyPrivateWebLogs
                 Effect: Allow
                 Action:
